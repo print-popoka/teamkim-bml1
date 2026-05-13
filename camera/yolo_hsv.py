@@ -37,18 +37,21 @@ time.sleep(1)
 model = YOLO("yolov8n.pt")
 
 # HSV ranges ----------------------------------------------------------
-red_lower_1 = np.array([0, 50, 50])
-red_upper_1 = np.array([10, 255, 255])
-red_lower_2 = np.array([165, 50, 50])
+# High V floor: only the LIT bulb passes; unlit colored lenses fall below.
+# Red/yellow H ranges are disjoint to prevent confusion.
+red_lower_1 = np.array([0, 120, 150])
+red_upper_1 = np.array([8, 255, 255])
+red_lower_2 = np.array([170, 120, 150])
 red_upper_2 = np.array([179, 255, 255])
 
-yellow_lower = np.array([20, 80, 80])
-yellow_upper = np.array([35, 255, 255])
+yellow_lower = np.array([18, 120, 170])
+yellow_upper = np.array([32, 255, 255])
 
-green_lower = np.array([40, 60, 60])
-green_upper = np.array([90, 255, 255])
+green_lower = np.array([40, 80, 120])
+green_upper = np.array([85, 255, 255])
 
 MIN_COLOR_RATIO = 0.05  # at least 5% of the crop must match
+WIN_MARGIN = 1.5  # winner must beat runner-up by this factor
 KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
 
 # Temporal smoothing --------------------------------------------------
@@ -81,8 +84,16 @@ def classify_crop(bgr_crop):
     green_ratio = cv2.countNonZero(green) / total
 
     ratios = {"STOP": red_ratio, "SLOW": yellow_ratio, "GO": green_ratio}
-    winner, winner_ratio = max(ratios.items(), key=lambda kv: kv[1])
-    label = winner if winner_ratio > MIN_COLOR_RATIO else "UNKNOWN"
+    sorted_r = sorted(ratios.items(), key=lambda kv: kv[1], reverse=True)
+    (winner, winner_ratio), (_runner, runner_ratio) = sorted_r[0], sorted_r[1]
+
+    if winner_ratio <= MIN_COLOR_RATIO:
+        label = "UNKNOWN"
+    elif runner_ratio > 0 and winner_ratio < runner_ratio * WIN_MARGIN:
+        label = "UNKNOWN"  # too close to call
+    else:
+        label = winner
+
     return label, red_ratio, yellow_ratio, green_ratio
 
 

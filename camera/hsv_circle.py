@@ -28,17 +28,23 @@ picam2.start()
 time.sleep(1)
 
 # HSV ranges ----------------------------------------------------------
-# Red wraps across H=0/179, so two ranges. S floor lowered to 50.
-red_lower_1 = np.array([0, 50, 50])
-red_upper_1 = np.array([10, 255, 255])
-red_lower_2 = np.array([165, 50, 50])
+# Tuned from printed traffic-light samples. The key is a high V (brightness)
+# floor — only the LIT bulb passes, the colored-but-dark unlit lenses fall
+# below the threshold. Red and yellow H ranges are kept disjoint to avoid
+# the red<->yellow swap.
+red_lower_1 = np.array([0, 120, 150])
+red_upper_1 = np.array([8, 255, 255])
+red_lower_2 = np.array([170, 120, 150])
 red_upper_2 = np.array([179, 255, 255])
 
-yellow_lower = np.array([20, 80, 80])
-yellow_upper = np.array([35, 255, 255])
+yellow_lower = np.array([18, 120, 170])
+yellow_upper = np.array([32, 255, 255])
 
-green_lower = np.array([40, 60, 60])
-green_upper = np.array([90, 255, 255])
+green_lower = np.array([40, 80, 120])
+green_upper = np.array([85, 255, 255])
+
+# Winner must beat runner-up by this factor to commit a decision.
+WIN_MARGIN = 1.5
 
 # Shape thresholds ----------------------------------------------------
 min_area = 200
@@ -125,13 +131,22 @@ try:
         green_circle_area = get_circular_area(green_mask)
 
         # Pick the dominant color above min_area. Yellow -> SLOW (prepare to stop).
+        # Winner must beat runner-up by WIN_MARGIN — prevents red/yellow flip-flop
+        # when both lenses are partially visible.
         areas = {
             "STOP": red_circle_area,
             "SLOW": yellow_circle_area,
             "GO": green_circle_area,
         }
-        winner, winner_area = max(areas.items(), key=lambda kv: kv[1])
-        raw_signal = winner if winner_area > min_area else "UNKNOWN"
+        sorted_areas = sorted(areas.items(), key=lambda kv: kv[1], reverse=True)
+        (winner, winner_area), (_runner, runner_area) = sorted_areas[0], sorted_areas[1]
+
+        if winner_area <= min_area:
+            raw_signal = "UNKNOWN"
+        elif runner_area > 0 and winner_area < runner_area * WIN_MARGIN:
+            raw_signal = "UNKNOWN"  # too close to call
+        else:
+            raw_signal = winner
 
         signal = smooth_signal(raw_signal)
 
