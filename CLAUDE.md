@@ -1,6 +1,6 @@
 # teamkim-bml1
 
-단국대학교 모바일시스템공학과 Basic Mobile Lab 1 — Teamkim 팀.
+Basic Mobile Lab 1 — Teamkim 팀.
 
 ## Hardware
 
