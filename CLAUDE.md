@@ -59,6 +59,56 @@ python sensor/ultrasonic.py       # distance loop
 sensor tuning, motor calibration — serves that goal. Lecture-slide fidelity is
 secondary once the baseline scripts exist.
 
+## Locked decisions (do not redo without asking)
+
+- **Algorithm**: Start with refined Pledge (closed-loop turns verified by
+  ultrasonic). Swap to Tremaux as a fallback only if Pledge counter proves
+  unreliable in real testing. Algorithm choice may evolve during coding —
+  reconfirm with user before pivoting.
+- **Ultrasonic layout**: 3 sensors — front-center, front-left (~45°),
+  front-right (~45°). Enables wall-following + junction detection.
+- **Motor wiring**: 4 DC motors, paired left/right. Specific wiring (single
+  L298N parallel vs 2x L298N) deferred until first integration test.
+- **Architecture**: Refactor into hal/perception/control/algorithm/logs
+  modules. Keep existing `camera/`, `motor/`, `sensor/` files as a legacy
+  baseline — do not delete them.
+- **Replay system**: Mandatory from day 1. All sensor reads and decisions are
+  logged to JSONL with timestamps so logic can be debugged offline without
+  the robot.
+
+## Privacy & attribution policy (PUBLIC repo)
+
+This repo is public. Privacy rules override convenience.
+
+**Allowed:**
+- Course name ("Basic Mobile Lab 1")
+- A single copyright line referencing the user's name (already in
+  CLAUDE.md / README.md headers)
+
+**Not allowed — never commit:**
+- Real names of teammates (use generic role labels: "team lead", "member A")
+- Student IDs, emails, phone numbers
+- TA/instructor names, profile photos, contact details
+- University name, department name, lab name, building/room numbers
+- Anything else in the privacy class listed under "Security (CRITICAL)" below
+
+If a doc file contains restricted info, scrub before commit. When in doubt,
+ask the user.
+
+## Communication rule
+
+After ANY change that requires the user to run something on the Pi, end the
+message with a clear, copy-pasteable command block:
+
+```
+cd ~/teamkim-bml1
+git pull
+python <exact/path/to/file>.py
+```
+
+State which file does what and what to look for in the output. Never leave
+the user guessing which command corresponds to which feature.
+
 ## Working Principle: ask for raw data, then calibrate
 
 Claude cannot see/feel the hardware. The physical environment (motor torque,
