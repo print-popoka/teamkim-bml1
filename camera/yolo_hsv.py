@@ -42,6 +42,9 @@ red_upper_1 = np.array([10, 255, 255])
 red_lower_2 = np.array([165, 50, 50])
 red_upper_2 = np.array([179, 255, 255])
 
+yellow_lower = np.array([20, 80, 80])
+yellow_upper = np.array([35, 255, 255])
+
 green_lower = np.array([40, 60, 60])
 green_upper = np.array([90, 255, 255])
 
@@ -55,9 +58,9 @@ history = deque(maxlen=SMOOTH_WINDOW)
 
 
 def classify_crop(bgr_crop):
-    """Return ('STOP'|'GO'|'UNKNOWN', red_ratio, green_ratio)."""
+    """Return ('STOP'|'SLOW'|'GO'|'UNKNOWN', red_ratio, yellow_ratio, green_ratio)."""
     if bgr_crop.size == 0:
-        return "UNKNOWN", 0.0, 0.0
+        return "UNKNOWN", 0.0, 0.0, 0.0
 
     hsv = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2HSV)
 
@@ -65,20 +68,22 @@ def classify_crop(bgr_crop):
         cv2.inRange(hsv, red_lower_1, red_upper_1),
         cv2.inRange(hsv, red_lower_2, red_upper_2),
     )
+    yellow = cv2.inRange(hsv, yellow_lower, yellow_upper)
     green = cv2.inRange(hsv, green_lower, green_upper)
 
     red = cv2.morphologyEx(red, cv2.MORPH_OPEN, KERNEL)
+    yellow = cv2.morphologyEx(yellow, cv2.MORPH_OPEN, KERNEL)
     green = cv2.morphologyEx(green, cv2.MORPH_OPEN, KERNEL)
 
     total = bgr_crop.shape[0] * bgr_crop.shape[1]
     red_ratio = cv2.countNonZero(red) / total
+    yellow_ratio = cv2.countNonZero(yellow) / total
     green_ratio = cv2.countNonZero(green) / total
 
-    if red_ratio > MIN_COLOR_RATIO and red_ratio > green_ratio:
-        return "STOP", red_ratio, green_ratio
-    if green_ratio > MIN_COLOR_RATIO and green_ratio > red_ratio:
-        return "GO", red_ratio, green_ratio
-    return "UNKNOWN", red_ratio, green_ratio
+    ratios = {"STOP": red_ratio, "SLOW": yellow_ratio, "GO": green_ratio}
+    winner, winner_ratio = max(ratios.items(), key=lambda kv: kv[1])
+    label = winner if winner_ratio > MIN_COLOR_RATIO else "UNKNOWN"
+    return label, red_ratio, yellow_ratio, green_ratio
 
 
 def smooth(raw):
@@ -114,23 +119,24 @@ try:
                     continue
                 x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                 crop = frame[max(0, y1) : y2, max(0, x1) : x2]
-                label, red_r, green_r = classify_crop(crop)
+                label, red_r, yellow_r, green_r = classify_crop(crop)
                 if label != "UNKNOWN":
                     best_label = label
                     best_conf = conf
-                    best_box = (x1, y1, x2, y2, red_r, green_r)
+                    best_box = (x1, y1, x2, y2, red_r, yellow_r, green_r)
 
         signal = smooth(best_label)
 
         if best_box is not None:
-            x1, y1, x2, y2, red_r, green_r = best_box
+            x1, y1, x2, y2, red_r, yellow_r, green_r = best_box
             print(
                 f"[SIGNAL] {signal:<7} (raw={best_label:<7}) "
                 f"box=({x1},{y1},{x2},{y2}) conf={best_conf:.2f} "
-                f"red={red_r:.2%} green={green_r:.2%}"
+                f"red={red_r:.2%} yellow={yellow_r:.2%} green={green_r:.2%}"
             )
             color = (
                 (0, 0, 255) if best_label == "STOP"
+                else (0, 255, 255) if best_label == "SLOW"
                 else (0, 255, 0) if best_label == "GO"
                 else (200, 200, 200)
             )

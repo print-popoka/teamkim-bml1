@@ -34,6 +34,9 @@ red_upper_1 = np.array([10, 255, 255])
 red_lower_2 = np.array([165, 50, 50])
 red_upper_2 = np.array([179, 255, 255])
 
+yellow_lower = np.array([20, 80, 80])
+yellow_upper = np.array([35, 255, 255])
+
 green_lower = np.array([40, 60, 60])
 green_upper = np.array([90, 255, 255])
 
@@ -110,27 +113,32 @@ try:
         red_mask_2 = cv2.inRange(hsv, red_lower_2, red_upper_2)
         red_mask = clean_mask(cv2.bitwise_or(red_mask_1, red_mask_2))
 
+        yellow_mask = clean_mask(cv2.inRange(hsv, yellow_lower, yellow_upper))
         green_mask = clean_mask(cv2.inRange(hsv, green_lower, green_upper))
 
         red_raw_area = cv2.countNonZero(red_mask)
+        yellow_raw_area = cv2.countNonZero(yellow_mask)
         green_raw_area = cv2.countNonZero(green_mask)
 
         red_circle_area = get_circular_area(red_mask)
+        yellow_circle_area = get_circular_area(yellow_mask)
         green_circle_area = get_circular_area(green_mask)
 
-        if red_circle_area > min_area and red_circle_area > green_circle_area:
-            raw_signal = "STOP"
-        elif green_circle_area > min_area and green_circle_area > red_circle_area:
-            raw_signal = "GO"
-        else:
-            raw_signal = "UNKNOWN"
+        # Pick the dominant color above min_area. Yellow -> SLOW (prepare to stop).
+        areas = {
+            "STOP": red_circle_area,
+            "SLOW": yellow_circle_area,
+            "GO": green_circle_area,
+        }
+        winner, winner_area = max(areas.items(), key=lambda kv: kv[1])
+        raw_signal = winner if winner_area > min_area else "UNKNOWN"
 
         signal = smooth_signal(raw_signal)
 
         print(
             f"[SIGNAL] {signal:<7} (raw={raw_signal:<7}) "
-            f"red_circle={red_circle_area:>6} green_circle={green_circle_area:>6} "
-            f"| red_raw={red_raw_area:>6} green_raw={green_raw_area:>6}"
+            f"red={red_circle_area:>5} yellow={yellow_circle_area:>5} green={green_circle_area:>5} "
+            f"| raw_r={red_raw_area:>5} raw_y={yellow_raw_area:>5} raw_g={green_raw_area:>5}"
         )
 
         time.sleep(0.2)
