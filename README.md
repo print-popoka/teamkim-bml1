@@ -1,7 +1,5 @@
 # teamkim-bml1
 
-자율주행 미로 탈출 로봇 (Raspberry Pi + Camera + L298N motors + HC-SR04). 
-
 Copyright © Hyunjung Kim. All rights reserved.
 
 ## Structure
@@ -28,6 +26,8 @@ Copyright © Hyunjung Kim. All rights reserved.
 | Camera | Raspberry Pi Camera Rev 1.3 (CSI) |
 | Motor driver | L298N |
 | Sensor | HC-SR04 ultrasonic |
+
+(Raspberry Pi + Camera + L298N motors + HC-SR04). 
 
 ## Wiring (BCM numbering)
 
