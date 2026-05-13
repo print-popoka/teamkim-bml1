@@ -1,6 +1,6 @@
-### Copyright © Hyunjung Kim. All rights reserved.
+# Copyright © Hyunjung Kim. All rights reserved.
 
-# teamkim-bml1
+## teamkim-bml1
 
 Basic Mobile Lab 1 — Teamkim 팀.
 
