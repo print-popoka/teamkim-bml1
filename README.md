@@ -46,7 +46,3 @@ python camera/hsv.py
 python motor/motor.py
 python sensor/ultrasonic.py
 ```
-
-## Course
-
-- 2026-1 Basic Mobile Lab 1, Dankook University
