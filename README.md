@@ -1,8 +1,8 @@
 # teamkim-bml1
 
-단국대학교 모바일시스템공학과 **Basic Mobile Lab 1** — Teamkim 팀 프로젝트.
+자율주행 미로 탈출 로봇 (Raspberry Pi + Camera + L298N motors + HC-SR04). 
 
-자율주행 미로 탈출 로봇 (Raspberry Pi + Camera + L298N motors + HC-SR04).
+Copyright © Hyunjung Kim. All rights reserved.
 
 ## Structure
 
