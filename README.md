@@ -1,6 +1,6 @@
-# teamkim-bml1
+# Copyright © Hyunjung Kim. All rights reserved.
 
-Copyright © Hyunjung Kim. All rights reserved.
+## teamkim-bml1
 
 ## Structure
 
