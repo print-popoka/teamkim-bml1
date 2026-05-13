@@ -53,6 +53,32 @@ python motor/motor.py             # forward test
 python sensor/ultrasonic.py       # distance loop
 ```
 
+## Project Priority
+
+**The single goal is: complete the maze (미로 탈출).** Everything — code structure,
+sensor tuning, motor calibration — serves that goal. Lecture-slide fidelity is
+secondary once the baseline scripts exist.
+
+## Working Principle: ask for raw data, then calibrate
+
+Claude cannot see/feel the hardware. The physical environment (motor torque,
+wheel slip, sensor noise floor, lighting, traffic-light dimensions, maze wall
+spacing) is unknown unless the user measures it.
+
+**Default workflow for any tuning task:**
+
+1. Identify what physical numbers would let you set a threshold or constant precisely
+   (e.g., "HSV value of the lit red bulb at 50 cm", "ultrasonic reading 1 cm from a wall",
+   "PWM duty cycle at which the car moves but doesn't slip").
+2. Tell the user **which script to run, which command to type, where to point the
+   sensor/camera, and what to read off the terminal** — be concrete, no hand-waving.
+3. Wait for the numbers. Don't guess.
+4. Plug the measured values into code with a comment recording the measurement
+   conditions (date, lighting, distance), so future drift is debuggable.
+
+Hardware capacity is generous — prefer precise, well-tuned code over conservative
+defaults. Use whatever model size / sampling rate / loop frequency the Pi can handle.
+
 ## Notes for Claude
 
 - Each script is standalone and tracks the lecture slides 1:1 — keep that mapping when editing.
