@@ -79,6 +79,30 @@ python motor/motor.py             # forward test
 python sensor/ultrasonic.py       # distance loop
 ```
 
+## NEXT SESSION — start here
+
+**Top priority: sensor noise calibration (ultrasonic).** Before any algorithm
+code, get the 3 HC-SR04 sensors producing clean, trustworthy distances.
+
+Agreed algorithm direction (settled, do not re-litigate):
+- **Right-hand wall-following is the MAIN algorithm.** Pledge's angle counter
+  is unreliable without a heading sensor and gives no benefit on a
+  simply-connected maze.
+- Build the architecture so the Pledge counter is a **pluggable layer**
+  (off by default; switch on only if maze has islands or an IMU is added).
+- Competitive edge = execution quality (PD wall-follow, closed-loop turns,
+  sensor filtering, replay debugging, low camera→motor latency), not exotic
+  algorithm choice.
+
+Open items to pursue in parallel (user issues these as orders/inquiries):
+1. Ask TA/instructor whether the evaluation maze is simply connected or has
+   loops/islands — this finalizes the algorithm.
+2. Decide whether to add an MPU6050 IMU (~₩2000) for reliable heading;
+   unlocks Pledge/Trémaux. User's call; Claude only presents trade-offs.
+
+First concrete task next session: ultrasonic noise characterization +
+filtering (median/moving-average), with a measurement guide for the user.
+
 ## Role boundary (IMPORTANT)
 
 The user is the **software design lead**, not hardware. They do NOT physically
