@@ -116,6 +116,11 @@ wire or assemble the robot and may not know the exact as-built wiring.
 - Never assume a pin assignment is real until the user confirms the hardware
   team implemented it.
 
+The user owns **all software design + implementation** and **issues hardware
+orders** (defines the spec, the hardware team builds it). This framing is also
+used in the user's personal portfolio — keep commits, docs, and architecture
+consistent with "SW fully owned by user; HW spec'd then ordered out".
+
 ## Project Priority
 
 **The single goal is: complete the maze (미로 탈출).** Everything — code structure,
