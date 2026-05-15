@@ -26,8 +26,9 @@ Basic Mobile Lab 1 — Teamkim 팀.
 - pip is `externally-managed` → **always** `--break-system-packages`
 - `/tmp` is tmpfs 1.9G (small) → set `TMPDIR=/home/team2` for big installs
 
-## GPIO (BCM) — confirmed pin map
+## GPIO (BCM) — RECOMMENDED pin map (relay to hardware team)
 
+Not as-built. This is the spec the user should hand to the hardware team.
 Ultrasonic uses **independent TRIG/ECHO per sensor** (6 pins) — chosen for
 robustness and clean per-sensor code. None collide with motor pins.
 
@@ -77,6 +78,19 @@ python camera/hsv_circle.py       # HSV + circle filter
 python motor/motor.py             # forward test
 python sensor/ultrasonic.py       # distance loop
 ```
+
+## Role boundary (IMPORTANT)
+
+The user is the **software design lead**, not hardware. They do NOT physically
+wire or assemble the robot and may not know the exact as-built wiring.
+
+- Pin maps / wiring / sensor placement in this doc are **recommended specs to
+  hand to the hardware team**, NOT confirmed as-built facts.
+- When hardware detail matters, state it as "recommend the hardware team do X"
+  so the user can relay it as an order, then reconcile once they report back
+  what was actually built.
+- Never assume a pin assignment is real until the user confirms the hardware
+  team implemented it.
 
 ## Project Priority
 
