@@ -81,8 +81,11 @@ python sensor/ultrasonic.py       # distance loop
 
 ## NEXT SESSION — start here
 
-**Top priority: sensor noise calibration (ultrasonic).** Before any algorithm
-code, get the 3 HC-SR04 sensors producing clean, trustworthy distances.
+**Top priority: sensor noise calibration — BOTH ultrasonic AND camera.**
+Before any algorithm code, get clean trustworthy signals from both:
+- 3× HC-SR04: stable distances (median/moving-average, outlier rejection)
+- Camera: stable traffic-light decision (HSV under real lighting, temporal
+  smoothing, exposure/white-balance noise, ROI to cut false positives)
 
 Agreed algorithm direction (settled, do not re-litigate):
 - **Right-hand wall-following is the MAIN algorithm.** Pledge's angle counter
@@ -100,8 +103,12 @@ Open items to pursue in parallel (user issues these as orders/inquiries):
 2. Decide whether to add an MPU6050 IMU (~₩2000) for reliable heading;
    unlocks Pledge/Trémaux. User's call; Claude only presents trade-offs.
 
-First concrete task next session: ultrasonic noise characterization +
-filtering (median/moving-average), with a measurement guide for the user.
+First concrete tasks next session (parallel):
+1. Ultrasonic noise characterization + filtering (median/moving-average,
+   outlier rejection), with a measurement guide for the user.
+2. Camera noise calibration: measure real HSV of lit red/green (and yellow if
+   enabled) via hsv_picker.py under test lighting, set ranges from data,
+   add temporal smoothing + ROI; quantify false-positive/flicker rate.
 
 ## Role boundary (IMPORTANT)
 
