@@ -6,20 +6,42 @@ Basic Mobile Lab 1 — Teamkim 팀.
 
 ## Hardware
 
-- Raspberry Pi 4B rev 1.5 (BCM2711, 4GB RAM, MicroSD)
-- Raspberry Pi Camera Rev 1.3 (CSI)
-- L298N motor driver + 2x DC motors
-- HC-SR04 ultrasonic sensor
+- **Raspberry Pi 4B rev 1.5** — BCM2711, 1.5GHz quad-core Cortex-A72 (aarch64),
+  4GB RAM, MicroSD. CPU only, no GPU → YOLOv8n is the largest usable model.
+- **Camera**: OV5647 (Pi Camera Rev 1.3), 5MP, horizontal FOV ~54° (narrow —
+  traffic light leaves frame easily), fixed focus f/2.9, CSI ×1. Using 640×480.
+- **L298N motor driver** — 2 channels (A/B), 2A continuous per channel,
+  12V motor supply.
+- **DC motors ×4** (4-wheel), paired left/right. **No encoders** (core
+  algorithm constraint — no odometry, time-based estimation only).
+- **HC-SR04 ultrasonic ×3** — front-center, front-left ~45°, front-right ~45°.
+  Range 2–400cm, 40kHz, 5V (Echo also 5V, no divider used). Round-robin
+  ≈10Hz, ~10ms cooldown between pings, 30ms timeout.
 
-## GPIO (BCM)
+## Runtime environment
+
+- OS: Raspberry Pi OS (Debian-based), Python **3.13**
+- User `team2`, host `MobileLab`, Desktop `/home/team2/Desktop/`
+  → this is the confirmed `output_dir` for `camera/yolo.py`
+- pip is `externally-managed` → **always** `--break-system-packages`
+- `/tmp` is tmpfs 1.9G (small) → set `TMPDIR=/home/team2` for big installs
+
+## GPIO (BCM) — confirmed pin map
+
+Ultrasonic uses **independent TRIG/ECHO per sensor** (6 pins) — chosen for
+robustness and clean per-sensor code. None collide with motor pins.
 
 | Function | Pin |
 |---|---|
 | Motor A IN1 / IN2 | GPIO 17, 27 |
 | Motor B IN3 / IN4 | GPIO 22, 5 |
 | ENA / ENB (PWM) | GPIO 18, 19 |
-| Ultrasonic TRIG | GPIO 23 |
-| Ultrasonic ECHO | GPIO 24 |
+| Ultrasonic FRONT  TRIG / ECHO | GPIO 23, 24 |
+| Ultrasonic LEFT45 TRIG / ECHO | GPIO 25, 8 |
+| Ultrasonic RIGHT45 TRIG / ECHO | GPIO 7, 12 |
+
+> Legacy `sensor/ultrasonic.py` uses the single FRONT pair (23/24) only —
+> kept as baseline. New `hal/ultrasonics.py` will drive all three.
 
 ## Constraints
 
@@ -27,6 +49,9 @@ Basic Mobile Lab 1 — Teamkim 팀.
 - Pip installs **must** use `--break-system-packages`.
 - Set `TMPDIR=/home/team2` before installing (avoids /tmp space issues).
 - **Do not run YOLO and HSV simultaneously** — single-CPU contention will stall both.
+- **L298N 2A/channel limit**: pairing 2 motors per channel may exceed 2A on
+  stall. Confirm with current measurement at first integration test; 2× L298N
+  is the safe fallback. Wiring not finalized.
 
 ## Install (on the Pi)
 
@@ -66,9 +91,14 @@ secondary once the baseline scripts exist.
   unreliable in real testing. Algorithm choice may evolve during coding —
   reconfirm with user before pivoting.
 - **Ultrasonic layout**: 3 sensors — front-center, front-left (~45°),
-  front-right (~45°). Enables wall-following + junction detection.
+  front-right (~45°), each with independent TRIG/ECHO (pin map above).
+  Enables wall-following + junction detection.
 - **Motor wiring**: 4 DC motors, paired left/right. Specific wiring (single
   L298N parallel vs 2x L298N) deferred until first integration test.
+- **Traffic light**: official requirement is Red→STOP / Green→GO only.
+  Yellow→SLOW is implemented (alpha test had yellow) but its presence in the
+  real test is unconfirmed. Keep the code behind a config flag
+  (`ENABLE_YELLOW`) so it can be toggled without edits. Decide later.
 - **Architecture**: Refactor into hal/perception/control/algorithm/logs
   modules. Keep existing `camera/`, `motor/`, `sensor/` files as a legacy
   baseline — do not delete them.
