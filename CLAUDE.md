@@ -190,6 +190,31 @@ secondary once the baseline scripts exist.
   (completion time, collision count, stability) and the camera→motor
   reaction-delay metric (no discrete state transition latency).
 
+## Calibration plan — TWO PHASES (do not run all of it at the maze)
+
+Most calibrations don't depend on the maze. Doing them **in advance**
+turns sample-maze day from a scramble into a verify-and-tune session.
+The robot also arrives already-working, so any hardware surprises are
+caught in a safe environment first. See `docs/test_day_checklist.md`
+for the full step list.
+
+**Phase A (lab / dorm, before the maze, blocked by hardware wiring fix):**
+  - ultrasonic noise per sensor at known distances
+  - motor calibration (min PWM / speed / drift / turn rate)
+  - L298N stall current with a multimeter
+  - Claude bakes measured values into `hal/motors.py` + `hal/ultrasonics.py`
+  - first drive in the lab with `python main.py`; tune PD gains
+  - end state: a car that drives correctly in a controlled space
+
+**Phase B (sample maze, ~30 min):**
+  - verify hardware_check still PASSes
+  - re-measure on 우드락 (just one distance per sensor) — capture the
+    surface/angle bias
+  - HSV re-verify only if venue lighting differs noticeably
+  - 2–3 main.py iterations on the actual maze, tuning PD gains and
+    recording trace logs
+  - record the final run for the presentation video
+
 ## Sample-maze test day — must be ready (next week)
 
 This is a one-shot calibration opportunity. By that day we must have ready:
