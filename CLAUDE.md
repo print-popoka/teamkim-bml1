@@ -321,6 +321,28 @@ Smoke-test the writer: `python logs/trace.py` (writes a demo log).
 
 `logs/runs/` is gitignored; only the `logs/` package code is committed.
 
+## Architecture (the live one — keep this fresh)
+
+```
+hardware_check.py    -- Pi-side wiring verification (run before anything else)
+main.py              -- entry point; --dry-run works off the Pi
+
+camera/   legacy + tools (yolo, hsv, hsv_circle, yolo_hsv, hsv_picker)
+motor/    legacy + motor_calibration interactive tool
+sensor/   legacy + ultrasonic_noise stats tool
+
+hal/         ultrasonics.Ultrasonics  (3-sensor + median filter + warmup)
+             motors.Motors             (drive(L,R) primitive + helpers)
+perception/  traffic_light.TrafficLightDetector  (hsv_circle logic, reusable)
+control/     wall_follow.WallFollowController     (smooth PD + corner anticip)
+algorithm/   wall_follower_sm.WallFollowerSM       (INIT/FOLLOW/STOP@RED/PIVOT)
+logs/        trace.tracer                          (JSONL session events)
+docs/        test_day_checklist.md, STATUS.md
+```
+
+Update `docs/STATUS.md` when status changes; update this diagram when the
+module layout changes.
+
 ## Notes for Claude
 
 - Each script is standalone and tracks the lecture slides 1:1 — keep that mapping when editing.

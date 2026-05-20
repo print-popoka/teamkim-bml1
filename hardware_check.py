@@ -76,6 +76,12 @@ def parse_args() -> argparse.Namespace:
         help="ultrasonic samples per sensor",
     )
     parser.add_argument(
+        "--warmup",
+        type=int,
+        default=1,
+        help="discard this many initial pings per sensor (HC-SR04 first ping is noisy)",
+    )
+    parser.add_argument(
         "--motor-speed",
         type=int,
         default=25,
@@ -201,7 +207,9 @@ def wait_for_echo_state(pin: int, target: int, timeout: float) -> float | None:
 
 def measure_distance(sensor: UltrasonicSensor, timeout: float = 0.03) -> tuple[float | None, str]:
     GPIO.output(sensor.trig, GPIO.LOW)
-    time.sleep(0.0002)
+    # Longer settle reduces the first-ping outlier (HC-SR04 needs the
+    # transmitter capacitor to bleed off between pulses).
+    time.sleep(0.002)
 
     if GPIO.input(sensor.echo) == GPIO.HIGH:
         return None, "echo idle HIGH; check ECHO wiring/GND"
@@ -225,13 +233,17 @@ def measure_distance(sensor: UltrasonicSensor, timeout: float = 0.03) -> tuple[f
     return distance, "ok"
 
 
-def run_ultrasonic_test(sensors: list[UltrasonicSensor], samples: int) -> None:
+def run_ultrasonic_test(sensors: list[UltrasonicSensor], samples: int, warmup: int = 1) -> None:
     print("=== Ultrasonic test ===")
     print("Put a flat object 20-50 cm in front of each sensor while it is tested.")
     overall_pass = True
 
     for sensor in sensors:
         print(f"[CHECK] {sensor.name} TRIG={sensor.trig} ECHO={sensor.echo}")
+        # Warmup pings — discarded. HC-SR04 first ping after idle is unreliable.
+        for _ in range(max(0, warmup)):
+            measure_distance(sensor)
+            time.sleep(0.06)
         distances = []
         failures = []
         for idx in range(max(1, samples)):
@@ -278,7 +290,7 @@ def main() -> None:
 
     try:
         if not args.skip_ultrasonic:
-            run_ultrasonic_test(sensors, args.samples)
+            run_ultrasonic_test(sensors, args.samples, args.warmup)
         if include_motor:
             run_motor_test(args.motor_speed, args.motor_duration, args.yes)
     finally:

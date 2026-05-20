@@ -10,3 +10,12 @@ yolov8n.pt
 # Runtime trace logs (per-run JSONL). Keep the logs/ package code,
 # ignore only the runs/ output directory.
 logs/runs/
+
+# Local reference photos / videos — kept off the public repo.
+Traffic Light_Example/
+*.heic
+*.HEIC
+*.mov
+*.MOV
+*.mp4
+*.MP4

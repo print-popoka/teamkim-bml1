@@ -72,6 +72,12 @@ def main():
         help="ground-truth distance in cm (enables bias calculation)",
     )
     ap.add_argument("--quiet", action="store_true", help="suppress per-sample print")
+    ap.add_argument(
+        "--warmup",
+        type=int,
+        default=2,
+        help="discard this many initial pings (HC-SR04 first ping is noisy; default 2)",
+    )
     args = ap.parse_args()
 
     GPIO.setmode(GPIO.BCM)
@@ -85,6 +91,12 @@ def main():
     if args.true_cm is not None:
         print(f"[CONFIG] True distance: {args.true_cm} cm")
     print()
+
+    # Warmup pings — discarded. HC-SR04 first ping after idle reads as a
+    # large outlier (capacitor settling).
+    for _ in range(max(0, args.warmup)):
+        measure_once(args.trig, args.echo)
+        time.sleep(args.interval)
 
     samples = []
     fails = 0
