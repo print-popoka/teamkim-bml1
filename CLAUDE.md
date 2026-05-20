@@ -136,10 +136,22 @@ secondary once the baseline scripts exist.
 
 ## Locked decisions (do not redo without asking)
 
-- **Algorithm**: Start with refined Pledge (closed-loop turns verified by
-  ultrasonic). Swap to Tremaux as a fallback only if Pledge counter proves
-  unreliable in real testing. Algorithm choice may evolve during coding —
-  reconfirm with user before pivoting.
+- **Algorithm** (CONFIRMED via TA, 2026-05-17): **right-hand wall-following
+  alone**. TA stated left-hand vs right-hand will yield identical times by
+  design ("운에 의존하지 않을 것") — this implies the maze is simply
+  connected with no islands, so plain wall-following is provably complete.
+  Pledge counter is NOT needed. Architecture still keeps a counter slot as a
+  pluggable layer (default OFF) in case the spec changes, but no engineering
+  effort goes into it.
+- **Corner geometry** (CONFIRMED via TA): 90° corners only. No oblique angles.
+  Turn state machine simplifies — closed-loop turns can be driven by
+  "side wall appears" or "front wall disappears" events, no angle tracking.
+- **Maze wall material** (CONFIRMED via TA): 우드락 (foam board). Smooth
+  surface → ultrasonic should reflect well, but verify 45° angled returns
+  in the ultrasonic calibration phase.
+- **Traffic light source** (CONFIRMED via TA): printed paper (same as alpha
+  test). Current HSV calibration on printed paper remains valid; verify with
+  hsv_picker.py on the actual evaluation print on test day.
 - **Ultrasonic layout**: 3 sensors — front-center, front-left (~45°),
   front-right (~45°), each with independent TRIG/ECHO (pin map above).
   Enables wall-following + junction detection.
