@@ -172,6 +172,23 @@ secondary once the baseline scripts exist.
   right-hand wall-following). Hardware order to team: "start position with
   right wall within ~10cm". Initialization logic should also handle "no
   right wall detected → drive forward until one appears".
+- **Driving style — smooth, never stop-and-turn** (PI feedback, 2026-05-17):
+  the car must navigate corners as continuous arcs, not as "stop → in-place
+  rotate → resume". This means:
+    * The motor primitive is `drive(left_pwm, right_pwm)` — both wheels are
+      *always* turning while moving; direction is encoded as the differential,
+      not as a discrete state.
+    * Higher-level helpers `forward(speed)`, `arc_left/right(speed, curvature)`
+      all wrap that primitive. No `stop_then_turn()` in the normal path.
+    * Cornering = anticipate from front distance; as front distance drops,
+      slow the inside wheel and curve through the corner. Wall-following PD
+      blends seamlessly into corner arcs (corner is just a tight setpoint).
+    * In-place pivot stays in the codebase as a **fallback only** for
+      dead-end U-turns (tight 180° in a 25cm corridor where an arc can't
+      fit). Never used on normal 90° corners.
+  Rationale: smoother driving directly improves the three grading axes
+  (completion time, collision count, stability) and the camera→motor
+  reaction-delay metric (no discrete state transition latency).
 
 ## Sample-maze test day — must be ready (next week)
 
