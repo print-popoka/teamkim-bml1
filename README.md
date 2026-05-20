@@ -45,4 +45,5 @@ python camera/yolo.py
 python camera/hsv.py
 python motor/motor.py
 python sensor/ultrasonic.py
+python hardware_check.py         # motor + 3x ultrasonic assembly check
 ```
