@@ -154,6 +154,12 @@ secondary once the baseline scripts exist.
   RED must never be missed). Exception handled in main-loop state machine:
   while STOPPED at a red light, only an explicit GREEN releases the brake —
   UNKNOWN holds the stop. To be implemented in algorithm/state machine phase.
+- **Main-loop detector = hsv_circle (NOT yolo_hsv)**. YOLO on Pi 4B CPU runs
+  at 1–2 FPS — too slow for a moving car. `hsv_circle.py` (HSV + circularity
+  filter) runs at 10–20 FPS and is sufficient because our maze is a controlled
+  environment with no rogue red/green objects (no brake lights, no red shirts,
+  just the printed traffic light). `yolo_hsv.py` is kept as a dev/verification
+  baseline only — do not put YOLO on the runtime path.
 - **Calibration target**: printed paper traffic light (alpha-test props) for
   current HSV tuning. Real evaluation will use **more saturated** colors —
   so tuning to the dim printed values is conservative-safe (saturated reds
