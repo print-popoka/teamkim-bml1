@@ -100,10 +100,11 @@ for the sample-maze calibration day.
 ## Don't be surprised by
 
 - **`--warmup`** — the first HC-SR04 ping after idle reads as an outlier
-  (FRONT sample was 37 cm vs the next four at 9.8 cm). The tool now
-  discards `--warmup` initial pings by default. A one-sample WARN with
-  a giant `spread` you see only when warmup=0 is normal, not a wiring
-  issue.
+  (example from a *non-calibration* sanity check: FRONT first sample was
+  37 cm vs the next four around 9.8 cm at the same arbitrary distance).
+  The tool now discards `--warmup` initial pings by default. A
+  one-sample WARN with a giant `spread` you see only when warmup=0 is
+  normal, not a wiring issue.
 - **45° mounting angle** — the left/right sensors look at the wall at
   45°. Specular reflection off 우드락 still works, but values may read
   ~5–10 % shorter than actual normal distance. Calibrated at the

@@ -102,6 +102,14 @@ event, and exit cleanly.
 
 ## Hardware status (per the `hardware_check.py` run that motivated this turn)
 
+> The ultrasonic numbers below are from a **sanity check, not a positional
+> calibration**. The sensors were sitting on a bench at an arbitrary
+> distance; the takeaway is "FRONT alive, LEFT45/RIGHT45 dead", not any
+> particular cm reading. Real distance-vs-truth data will come from the
+> sample-maze test next week using `sensor/ultrasonic_noise.py --true N`.
+
+
+
 | Channel | Pins | Result | Action |
 |---|---|---|---|
 | Ultrasonic FRONT | 23/24 | ✅ works (1st sample was warmup outlier; now discarded) | none |
