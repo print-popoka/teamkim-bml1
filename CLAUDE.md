@@ -145,10 +145,13 @@ secondary once the baseline scripts exist.
   Enables wall-following + junction detection.
 - **Motor wiring**: 4 DC motors, paired left/right. Specific wiring (single
   L298N parallel vs 2x L298N) deferred until first integration test.
-- **Traffic light**: official requirement is Red→STOP / Green→GO only.
-  Yellow→SLOW is implemented (alpha test had yellow) but its presence in the
-  real test is unconfirmed. Keep the code behind a config flag
-  (`ENABLE_YELLOW`) so it can be toggled without edits. Decide later.
+- **Traffic light**: RED→STOP / GREEN→GO only (confirmed — no yellow in real
+  test). Yellow handling has been removed from `hsv_circle.py` and
+  `yolo_hsv.py`. Do not re-add unless the spec changes.
+- **Calibration target**: printed paper traffic light (alpha-test props) for
+  current HSV tuning. Real evaluation will use **more saturated** colors —
+  so tuning to the dim printed values is conservative-safe (saturated reds
+  and greens will easily pass thresholds set for the dim version).
 - **Architecture**: Refactor into hal/perception/control/algorithm/logs
   modules. Keep existing `camera/`, `motor/`, `sensor/` files as a legacy
   baseline — do not delete them.

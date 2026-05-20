@@ -29,21 +29,17 @@ time.sleep(1)
 
 # HSV ranges ----------------------------------------------------------
 # Tuned from printed traffic-light samples. The key is a high V (brightness)
-# floor — only the LIT bulb passes, the colored-but-dark unlit lenses fall
-# below the threshold. Red and yellow H ranges are kept disjoint to avoid
-# the red<->yellow swap.
+# floor — only the LIT bulb passes; the colored-but-dark unlit lenses fall
+# below the threshold. Project uses RED and GREEN only (yellow removed).
 red_lower_1 = np.array([0, 120, 150])
-red_upper_1 = np.array([8, 255, 255])
+red_upper_1 = np.array([10, 255, 255])
 red_lower_2 = np.array([170, 120, 150])
 red_upper_2 = np.array([179, 255, 255])
-
-yellow_lower = np.array([18, 120, 170])
-yellow_upper = np.array([32, 255, 255])
 
 green_lower = np.array([40, 80, 120])
 green_upper = np.array([85, 255, 255])
 
-# Winner must beat runner-up by this factor to commit a decision.
+# Winner must beat the other color by this factor to commit a decision.
 WIN_MARGIN = 1.5
 
 # Shape thresholds ----------------------------------------------------
@@ -119,41 +115,28 @@ try:
         red_mask_2 = cv2.inRange(hsv, red_lower_2, red_upper_2)
         red_mask = clean_mask(cv2.bitwise_or(red_mask_1, red_mask_2))
 
-        yellow_mask = clean_mask(cv2.inRange(hsv, yellow_lower, yellow_upper))
         green_mask = clean_mask(cv2.inRange(hsv, green_lower, green_upper))
 
         red_raw_area = cv2.countNonZero(red_mask)
-        yellow_raw_area = cv2.countNonZero(yellow_mask)
         green_raw_area = cv2.countNonZero(green_mask)
 
         red_circle_area = get_circular_area(red_mask)
-        yellow_circle_area = get_circular_area(yellow_mask)
         green_circle_area = get_circular_area(green_mask)
 
-        # Pick the dominant color above min_area. Yellow -> SLOW (prepare to stop).
-        # Winner must beat runner-up by WIN_MARGIN — prevents red/yellow flip-flop
-        # when both lenses are partially visible.
-        areas = {
-            "STOP": red_circle_area,
-            "SLOW": yellow_circle_area,
-            "GO": green_circle_area,
-        }
-        sorted_areas = sorted(areas.items(), key=lambda kv: kv[1], reverse=True)
-        (winner, winner_area), (_runner, runner_area) = sorted_areas[0], sorted_areas[1]
-
-        if winner_area <= min_area:
+        # RED -> STOP, GREEN -> GO. Winner must beat the other by WIN_MARGIN.
+        if red_circle_area <= min_area and green_circle_area <= min_area:
             raw_signal = "UNKNOWN"
-        elif runner_area > 0 and winner_area < runner_area * WIN_MARGIN:
-            raw_signal = "UNKNOWN"  # too close to call
+        elif red_circle_area > green_circle_area:
+            raw_signal = "STOP" if red_circle_area >= green_circle_area * WIN_MARGIN else "UNKNOWN"
         else:
-            raw_signal = winner
+            raw_signal = "GO" if green_circle_area >= red_circle_area * WIN_MARGIN else "UNKNOWN"
 
         signal = smooth_signal(raw_signal)
 
         print(
             f"[SIGNAL] {signal:<7} (raw={raw_signal:<7}) "
-            f"red={red_circle_area:>5} yellow={yellow_circle_area:>5} green={green_circle_area:>5} "
-            f"| raw_r={red_raw_area:>5} raw_y={yellow_raw_area:>5} raw_g={green_raw_area:>5}"
+            f"red_circle={red_circle_area:>5} green_circle={green_circle_area:>5} "
+            f"| red_raw={red_raw_area:>5} green_raw={green_raw_area:>5}"
         )
 
         time.sleep(0.2)

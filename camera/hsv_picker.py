@@ -1,15 +1,17 @@
 """On-site HSV calibration tool — click a pixel, see its H/S/V.
 
-Use this when red/yellow/green thresholds in hsv_circle.py or yolo_hsv.py
+Use this when red/green thresholds in hsv_circle.py or yolo_hsv.py
 need tuning under your actual lighting + actual traffic-light model.
 
 How to use:
   1. Run this script.
   2. Hold up the traffic light (RED on).
   3. Click on the red bulb in the preview window — its HSV prints to terminal.
-  4. Repeat for yellow and green.
-  5. Update the `*_lower / *_upper` arrays in hsv_circle.py / yolo_hsv.py
-     so each color's measured H/S/V falls inside its range.
+  4. Repeat for green.
+  5. Also click UNLIT bulbs and the case/background to learn what to reject.
+  6. Update the `*_lower / *_upper` arrays in hsv_circle.py / yolo_hsv.py
+     so each LIT color's measured H/S/V falls inside its range while UNLIT
+     and background values stay outside.
 
 Quit: 'q' in the preview window.
 """

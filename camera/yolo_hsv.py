@@ -38,20 +38,17 @@ model = YOLO("yolov8n.pt")
 
 # HSV ranges ----------------------------------------------------------
 # High V floor: only the LIT bulb passes; unlit colored lenses fall below.
-# Red/yellow H ranges are disjoint to prevent confusion.
+# Project uses RED and GREEN only (yellow removed).
 red_lower_1 = np.array([0, 120, 150])
-red_upper_1 = np.array([8, 255, 255])
+red_upper_1 = np.array([10, 255, 255])
 red_lower_2 = np.array([170, 120, 150])
 red_upper_2 = np.array([179, 255, 255])
-
-yellow_lower = np.array([18, 120, 170])
-yellow_upper = np.array([32, 255, 255])
 
 green_lower = np.array([40, 80, 120])
 green_upper = np.array([85, 255, 255])
 
 MIN_COLOR_RATIO = 0.05  # at least 5% of the crop must match
-WIN_MARGIN = 1.5  # winner must beat runner-up by this factor
+WIN_MARGIN = 1.5  # winner must beat the other color by this factor
 KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
 
 # Temporal smoothing --------------------------------------------------
@@ -61,9 +58,9 @@ history = deque(maxlen=SMOOTH_WINDOW)
 
 
 def classify_crop(bgr_crop):
-    """Return ('STOP'|'SLOW'|'GO'|'UNKNOWN', red_ratio, yellow_ratio, green_ratio)."""
+    """Return ('STOP'|'GO'|'UNKNOWN', red_ratio, green_ratio)."""
     if bgr_crop.size == 0:
-        return "UNKNOWN", 0.0, 0.0, 0.0
+        return "UNKNOWN", 0.0, 0.0
 
     hsv = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2HSV)
 
@@ -71,30 +68,24 @@ def classify_crop(bgr_crop):
         cv2.inRange(hsv, red_lower_1, red_upper_1),
         cv2.inRange(hsv, red_lower_2, red_upper_2),
     )
-    yellow = cv2.inRange(hsv, yellow_lower, yellow_upper)
     green = cv2.inRange(hsv, green_lower, green_upper)
 
     red = cv2.morphologyEx(red, cv2.MORPH_OPEN, KERNEL)
-    yellow = cv2.morphologyEx(yellow, cv2.MORPH_OPEN, KERNEL)
     green = cv2.morphologyEx(green, cv2.MORPH_OPEN, KERNEL)
 
     total = bgr_crop.shape[0] * bgr_crop.shape[1]
     red_ratio = cv2.countNonZero(red) / total
-    yellow_ratio = cv2.countNonZero(yellow) / total
     green_ratio = cv2.countNonZero(green) / total
 
-    ratios = {"STOP": red_ratio, "SLOW": yellow_ratio, "GO": green_ratio}
-    sorted_r = sorted(ratios.items(), key=lambda kv: kv[1], reverse=True)
-    (winner, winner_ratio), (_runner, runner_ratio) = sorted_r[0], sorted_r[1]
-
-    if winner_ratio <= MIN_COLOR_RATIO:
+    # RED -> STOP, GREEN -> GO. Winner must beat the other by WIN_MARGIN.
+    if red_ratio <= MIN_COLOR_RATIO and green_ratio <= MIN_COLOR_RATIO:
         label = "UNKNOWN"
-    elif runner_ratio > 0 and winner_ratio < runner_ratio * WIN_MARGIN:
-        label = "UNKNOWN"  # too close to call
+    elif red_ratio > green_ratio:
+        label = "STOP" if red_ratio >= green_ratio * WIN_MARGIN else "UNKNOWN"
     else:
-        label = winner
+        label = "GO" if green_ratio >= red_ratio * WIN_MARGIN else "UNKNOWN"
 
-    return label, red_ratio, yellow_ratio, green_ratio
+    return label, red_ratio, green_ratio
 
 
 def smooth(raw):
@@ -130,24 +121,23 @@ try:
                     continue
                 x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                 crop = frame[max(0, y1) : y2, max(0, x1) : x2]
-                label, red_r, yellow_r, green_r = classify_crop(crop)
+                label, red_r, green_r = classify_crop(crop)
                 if label != "UNKNOWN":
                     best_label = label
                     best_conf = conf
-                    best_box = (x1, y1, x2, y2, red_r, yellow_r, green_r)
+                    best_box = (x1, y1, x2, y2, red_r, green_r)
 
         signal = smooth(best_label)
 
         if best_box is not None:
-            x1, y1, x2, y2, red_r, yellow_r, green_r = best_box
+            x1, y1, x2, y2, red_r, green_r = best_box
             print(
                 f"[SIGNAL] {signal:<7} (raw={best_label:<7}) "
                 f"box=({x1},{y1},{x2},{y2}) conf={best_conf:.2f} "
-                f"red={red_r:.2%} yellow={yellow_r:.2%} green={green_r:.2%}"
+                f"red={red_r:.2%} green={green_r:.2%}"
             )
             color = (
                 (0, 0, 255) if best_label == "STOP"
-                else (0, 255, 255) if best_label == "SLOW"
                 else (0, 255, 0) if best_label == "GO"
                 else (200, 200, 200)
             )
