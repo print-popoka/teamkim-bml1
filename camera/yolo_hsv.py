@@ -37,14 +37,16 @@ time.sleep(1)
 model = YOLO("yolov8n.pt")
 
 # HSV ranges ----------------------------------------------------------
-# High V floor: only the LIT bulb passes; unlit colored lenses fall below.
-# Project uses RED and GREEN only (yellow removed).
-red_lower_1 = np.array([0, 120, 150])
+# Tuned 2026-05-17 from printed-paper alpha-test traffic light, ~30cm,
+# 18 hsv_picker samples. See camera/hsv_circle.py for derivation notes.
+# RED: S>=150 V>=100 (rejects RED_OFF S<=143 V<=75)
+# GREEN: S>=135      (rejects GREEN_OFF S<=128; H overlaps so S is sole discriminator)
+red_lower_1 = np.array([0, 150, 100])
 red_upper_1 = np.array([10, 255, 255])
-red_lower_2 = np.array([170, 120, 150])
+red_lower_2 = np.array([170, 150, 100])
 red_upper_2 = np.array([179, 255, 255])
 
-green_lower = np.array([40, 80, 120])
+green_lower = np.array([40, 135, 100])
 green_upper = np.array([85, 255, 255])
 
 MIN_COLOR_RATIO = 0.05  # at least 5% of the crop must match
