@@ -48,6 +48,18 @@ KP_CENTER = 0.06
 KP_CORNER = 0.03
 KD_CENTER = 0.04
 
+# Errors below this (cm) get no centering correction.
+# Addresses prof's tip #2: teams over-correct and waste forward progress.
+# At |error| < DEADBAND_CM the car just keeps going straight.
+DEADBAND_CM = 1.0
+
+# When right_cm exceeds this, the right wall has effectively disappeared
+# (right-opening / T-junction / cross intersection). PD already curves
+# right hard from the resulting big error; we just emit a trace event so
+# the offline replay tool can show where junctions occurred.
+# Addresses prof's tip #3: make junction detection visible in the log.
+JUNCTION_CM = 40.0
+
 
 Action = Literal["arc", "pivot_right", "pivot_left", "stop"]
 
@@ -65,6 +77,8 @@ class WallFollowController:
 
     def __init__(self) -> None:
         self._last_error: float | None = None
+        self._right_open_active: bool = False
+        self._left_open_active: bool = False
 
     def step(
         self,
@@ -106,11 +120,20 @@ class WallFollowController:
             self._trace(cmd)
             return cmd
 
+        # Junction detection: trace event only (PD already reacts via the
+        # large error these openings produce). Helps replay show where
+        # the car saw a T-junction or cross intersection.
+        self._maybe_log_junction(f, l, r)
+
         # 1+2+3. Smooth drive -------------------------------------------
         error = r - l
         derror = 0.0 if self._last_error is None else (error - self._last_error)
         self._last_error = error
-        centering = -KP_CENTER * error - KD_CENTER * derror
+        # Deadband: ignore tiny errors so we don't oscillate on a straight.
+        if abs(error) < DEADBAND_CM:
+            centering = 0.0
+        else:
+            centering = -KP_CENTER * error - KD_CENTER * derror
 
         corner_bias = 0.0
         if f < CORNER_ANTICIPATE_CM:
@@ -143,6 +166,20 @@ class WallFollowController:
     # ------------------------------------------------------------------ #
     # Internals
     # ------------------------------------------------------------------ #
+    def _maybe_log_junction(self, f: float, l: float, r: float) -> None:
+        """Emit a trace info event on right/left opening edges."""
+        right_open = r > JUNCTION_CM
+        if right_open and not self._right_open_active:
+            from logs.trace import tracer
+            tracer.info("junction_right_opened", front=f, left=l, right=r)
+        self._right_open_active = right_open
+
+        left_open = l > JUNCTION_CM
+        if left_open and not self._left_open_active:
+            from logs.trace import tracer
+            tracer.info("junction_left_opened", front=f, left=l, right=r)
+        self._left_open_active = left_open
+
     @staticmethod
     def _safe(v: float | None, default: float) -> float:
         return v if v is not None else default

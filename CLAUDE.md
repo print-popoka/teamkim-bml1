@@ -190,6 +190,18 @@ secondary once the baseline scripts exist.
   (completion time, collision count, stability) and the camera→motor
   reaction-delay metric (no discrete state transition latency).
 
+## Professor's common-pitfall tips (2026-05-17) and how we address each
+
+| Pitfall the PI observed in other teams | Our defense |
+|---|---|
+| Can't smoothly hold the center of the corridor | PD on `right - left` in `control/wall_follow.py` |
+| Constant micro-correcting → falls behind on time | **`DEADBAND_CM = 1.0`** — small errors produce **zero** centering correction. Test: `test_deadband_zero_curvature_for_tiny_error` |
+| Fails to recognize 90° turns / intersections | Already emergent: large `right-left` error at a junction → PD clamps curvature to ±1.0 → sharp arc. Plus `_maybe_log_junction()` emits a `junction_right_opened` / `junction_left_opened` trace event when `r` or `l` exceeds `JUNCTION_CM = 40 cm` — visible in replay for debugging. |
+| Stops then turns at 90° corners (massive time loss) | Locked in CLAUDE.md ("smooth-drive only"). `Motors.drive(L, R)` runs both wheels always; `arc()` slows the inside wheel only; in-place pivot is dead-end fallback only. |
+
+Whenever editing the controller or state machine, keep these defenses
+intact — they're the difference between us and the median team.
+
 ## Calibration plan — TWO PHASES (do not run all of it at the maze)
 
 Most calibrations don't depend on the maze. Doing them **in advance**

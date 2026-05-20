@@ -14,6 +14,7 @@ from __future__ import annotations
 from control.wall_follow import (
     ARC_MIN_CM,
     CORNER_ANTICIPATE_CM,
+    DEADBAND_CM,
     SAFE_MARGIN_CM,
     WallFollowController,
 )
@@ -81,6 +82,25 @@ def test_centering_balanced_goes_straight_or_nearly() -> None:
     cmd = _step(front=80.0, left=15.0, right=15.0)
     assert cmd.action == "arc"
     assert abs(cmd.curvature) < 0.1
+
+
+def test_deadband_zero_curvature_for_tiny_error() -> None:
+    """|right - left| below DEADBAND_CM -> exactly zero centering correction.
+
+    Prevents the over-correction loop the professor warned about
+    (continuous tiny steering = slow forward progress).
+    """
+    # Total imbalance < DEADBAND_CM — should be ignored.
+    half = DEADBAND_CM / 4  # so total error = DEADBAND_CM/2 < threshold
+    cmd = _step(front=80.0, left=15.0 - half, right=15.0 + half)
+    assert cmd.action == "arc"
+    assert cmd.curvature == 0.0
+
+
+def test_deadband_lets_real_errors_through() -> None:
+    """Errors larger than DEADBAND_CM still produce a correction."""
+    cmd = _step(front=80.0, left=10.0, right=10.0 + DEADBAND_CM * 5)
+    assert cmd.curvature != 0.0
 
 
 # ---------- Corner anticipation ----------------------------------------
