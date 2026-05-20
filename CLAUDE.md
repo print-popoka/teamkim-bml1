@@ -152,6 +152,44 @@ secondary once the baseline scripts exist.
 - **Traffic light source** (CONFIRMED via TA): printed paper (same as alpha
   test). Current HSV calibration on printed paper remains valid; verify with
   hsv_picker.py on the actual evaluation print on test day.
+- **Maze corridor width** (CONFIRMED via TA, 2026-05-17): baseline 25–30 cm
+  with sections that narrow then widen. Wall height 10cm+ (above chassis,
+  safe for any ultrasonic mount height). **Chassis is 15cm wide, 18cm with
+  wheels → only 3.5cm clearance per side at narrowest. Tight.** Implications:
+    * Wall-following must hold the car within ±2 cm of center, not just
+      "follow the right wall". Switch direct PD target from "right-wall
+      distance" to **(right - left) error → 0** (center the car), with
+      a clearance guard that overrides if either side is < safe_margin_cm.
+    * Forward speed must be reduced in narrowing sections (detect when
+      both side distances drop together → slow PWM).
+    * Ultrasonic accuracy ±1–2 cm is mandatory, not nice-to-have.
+- **Traffic light operation** (CONFIRMED via TA): manually operated by judge,
+  count TBD. → no timing/cycle assumption; react frame-by-frame to whatever
+  is currently shown. Multiple lights handled by running the same detector
+  per frame regardless of count.
+- **Start orientation** (CONFIRMED via TA): free choice. Convention: place
+  the car facing into the maze with a wall on the right side (matches
+  right-hand wall-following). Hardware order to team: "start position with
+  right wall within ~10cm". Initialization logic should also handle "no
+  right wall detected → drive forward until one appears".
+
+## Sample-maze test day — must be ready (next week)
+
+This is a one-shot calibration opportunity. By that day we must have ready:
+
+  1. `sensor/ultrasonic_noise.py` (DONE) — run per sensor at fixed distances
+     in the actual maze. Capture noise floor, bias, and 45°-mount-angle effect
+     on 우드락 walls.
+  2. Motor calibration script (NOT YET WRITTEN) — minimum PWM, left/right
+     asymmetry, straight-drift, 90° turn time.
+  3. `camera/hsv_picker.py` (DONE) — re-measure red/green HSV under sample
+     maze lighting with sample maze printed traffic light.
+  4. **Multimeter** to measure L298N current at motor stall (verify single
+     L298N is safe or whether we need 2×).
+  5. Notepad / phone for raw measurements; data goes into Claude after.
+
+Plan the order on test day so we don't run out of time. Priority:
+  ultrasonic → motor → camera HSV (current is OK, just verify).
 - **Ultrasonic layout**: 3 sensors — front-center, front-left (~45°),
   front-right (~45°), each with independent TRIG/ECHO (pin map above).
   Enables wall-following + junction detection.
