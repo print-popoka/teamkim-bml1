@@ -33,7 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from logs.trace import tracer
+from logs.trace import tracer  # noqa: F401 — used by _maybe_log_junction + _trace
 
 SAFE_MARGIN_CM = 4.0
 CORNER_ANTICIPATE_CM = 25.0
@@ -50,15 +50,29 @@ KD_CENTER = 0.04
 
 # Errors below this (cm) get no centering correction.
 # Addresses prof's tip #2: teams over-correct and waste forward progress.
-# At |error| < DEADBAND_CM the car just keeps going straight.
 DEADBAND_CM = 1.0
 
+# Cap on |derror| per tick. Without this, a side wall disappearing at
+# a junction makes derror huge (e.g. 15 -> 400 in one tick = 385cm),
+# KD * derror dominates and the controller spasms for one tick.
+MAX_DERROR_CM = 5.0
+
 # When right_cm exceeds this, the right wall has effectively disappeared
-# (right-opening / T-junction / cross intersection). PD already curves
-# right hard from the resulting big error; we just emit a trace event so
-# the offline replay tool can show where junctions occurred.
-# Addresses prof's tip #3: make junction detection visible in the log.
+# (right-opening / T-junction / cross intersection). On the rising edge
+# we COMMIT to a sharp right curve for JUNCTION_COMMIT_TICKS, ignoring
+# what the PD says. This stops the car from "smoothing through" a tight
+# right opening and missing the turn.
 JUNCTION_CM = 40.0
+JUNCTION_COMMIT_TICKS = 6           # 6 ticks @ 10Hz = 600ms of committed arc
+JUNCTION_COMMIT_CURVATURE = -0.85   # sharp right (not max -1.0 — keep some smoothness)
+JUNCTION_COMMIT_SPEED = 35.0        # slower during the commit for safety
+
+# As |error| grows, scale down speed. Big errors mean we are off-center
+# (or in a junction); driving slower while we correct keeps the car from
+# overshooting and reduces wall scrapes. Linear ramp; bottoms out at
+# SPEED_SCALE_FLOOR so we never freeze.
+SPEED_SCALE_ERROR_REF = 20.0  # error in cm at which speed drops to floor
+SPEED_SCALE_FLOOR = 0.55      # never below 55% of requested speed
 
 
 Action = Literal["arc", "pivot_right", "pivot_left", "stop"]
@@ -77,8 +91,14 @@ class WallFollowController:
 
     def __init__(self) -> None:
         self._last_error: float | None = None
-        self._right_open_active: bool = False
-        self._left_open_active: bool = False
+        # ``None`` means "we haven't seen this side yet". On the first tick
+        # the junction-edge detector seeds itself with the current state
+        # instead of treating it as a transition — otherwise booting in
+        # an open area would trigger a phantom right-turn commit.
+        self._right_open_active: bool | None = None
+        self._left_open_active: bool | None = None
+        self._commit_ticks_remaining: int = 0
+        self._commit_curvature: float = 0.0
 
     def step(
         self,
@@ -120,16 +140,47 @@ class WallFollowController:
             self._trace(cmd)
             return cmd
 
-        # Junction detection: trace event only (PD already reacts via the
-        # large error these openings produce). Helps replay show where
-        # the car saw a T-junction or cross intersection.
-        self._maybe_log_junction(f, l, r)
+        # Junction detection — emits trace + sets up commit on rising edge.
+        new_right_open, new_left_open = self._maybe_log_junction(f, l, r)
+        # First tick: just seed; never treat boot state as an "edge".
+        if self._right_open_active is None or self._left_open_active is None:
+            self._right_open_active = new_right_open
+            self._left_open_active = new_left_open
+        else:
+            if new_right_open and not self._right_open_active:
+                self._commit_ticks_remaining = JUNCTION_COMMIT_TICKS
+                self._commit_curvature = JUNCTION_COMMIT_CURVATURE  # right
+            elif new_left_open and not self._left_open_active:
+                self._commit_ticks_remaining = JUNCTION_COMMIT_TICKS
+                self._commit_curvature = -JUNCTION_COMMIT_CURVATURE  # left
+            self._right_open_active = new_right_open
+            self._left_open_active = new_left_open
+
+        # Junction commit overrides normal PD for N ticks after detecting
+        # a side opening. Keeps the car committed to the turn even if the
+        # mid-rotation sensor readings get weird.
+        if self._commit_ticks_remaining > 0:
+            self._commit_ticks_remaining -= 1
+            # Still record error for the D term continuity.
+            error_commit = r - l
+            self._last_error = error_commit
+            cmd = WallFollowCommand(
+                action="arc",
+                linear_speed=JUNCTION_COMMIT_SPEED,
+                curvature=self._commit_curvature,
+                reason=f"junction_commit (left={self._commit_ticks_remaining}) "
+                       f"f={f:.1f} l={l:.1f} r={r:.1f}",
+            )
+            self._trace(cmd)
+            return cmd
 
         # 1+2+3. Smooth drive -------------------------------------------
         error = r - l
-        derror = 0.0 if self._last_error is None else (error - self._last_error)
+        derror_raw = 0.0 if self._last_error is None else (error - self._last_error)
+        # Clamp D-term to prevent spasms on big sensor jumps.
+        derror = max(-MAX_DERROR_CM, min(MAX_DERROR_CM, derror_raw))
         self._last_error = error
-        # Deadband: ignore tiny errors so we don't oscillate on a straight.
+
         if abs(error) < DEADBAND_CM:
             centering = 0.0
         else:
@@ -143,12 +194,21 @@ class WallFollowController:
 
         curvature = max(-1.0, min(1.0, centering + corner_bias))
 
+        # Base speed selection: narrowing > corner approach > normal.
         if l < NARROWING_CM and r < NARROWING_CM:
             speed = SLOW_SPEED
         elif f < CORNER_ANTICIPATE_CM:
             speed = APPROACH_SPEED
         else:
             speed = BASE_SPEED
+
+        # Error-magnitude speed scaling: big offset -> slow down so we
+        # don't overshoot while correcting. Linear ramp to a floor.
+        scale = max(
+            SPEED_SCALE_FLOOR,
+            1.0 - abs(error) / SPEED_SCALE_ERROR_REF * (1.0 - SPEED_SCALE_FLOOR),
+        )
+        speed = speed * scale
 
         cmd = WallFollowCommand(
             action="arc",
@@ -157,7 +217,8 @@ class WallFollowController:
             reason=(
                 f"f={f:.1f} l={l:.1f} r={r:.1f} "
                 f"err={error:+.1f} de={derror:+.1f} "
-                f"cent={centering:+.2f} corn={corner_bias:+.2f}"
+                f"cent={centering:+.2f} corn={corner_bias:+.2f} "
+                f"scale={scale:.2f}"
             ),
         )
         self._trace(cmd)
@@ -166,19 +227,25 @@ class WallFollowController:
     # ------------------------------------------------------------------ #
     # Internals
     # ------------------------------------------------------------------ #
-    def _maybe_log_junction(self, f: float, l: float, r: float) -> None:
-        """Emit a trace info event on right/left opening edges."""
-        right_open = r > JUNCTION_CM
-        if right_open and not self._right_open_active:
-            from logs.trace import tracer
-            tracer.info("junction_right_opened", front=f, left=l, right=r)
-        self._right_open_active = right_open
+    def _maybe_log_junction(
+        self, f: float, l: float, r: float
+    ) -> tuple[bool, bool]:
+        """Detect openings. Emit a trace event on rising edges.
 
+        Returns (right_open_now, left_open_now); caller compares against
+        previous state to detect a rising edge.
+        """
+        right_open = r > JUNCTION_CM
         left_open = l > JUNCTION_CM
-        if left_open and not self._left_open_active:
-            from logs.trace import tracer
-            tracer.info("junction_left_opened", front=f, left=l, right=r)
-        self._left_open_active = left_open
+        # Don't log on the first call (active flags are None) — that's
+        # initial state, not an edge.
+        if self._right_open_active is True or self._right_open_active is False:
+            if right_open and not self._right_open_active:
+                tracer.info("junction_right_opened", front=f, left=l, right=r)
+        if self._left_open_active is True or self._left_open_active is False:
+            if left_open and not self._left_open_active:
+                tracer.info("junction_left_opened", front=f, left=l, right=r)
+        return right_open, left_open
 
     @staticmethod
     def _safe(v: float | None, default: float) -> float:

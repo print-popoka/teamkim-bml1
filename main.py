@@ -33,6 +33,16 @@ from logs.trace import tracer
 LOOP_HZ = 10
 LOOP_DT = 1.0 / LOOP_HZ
 
+# Camera doesn't need to run every loop — traffic-light state changes
+# slowly (operator-controlled, not flickering). Polling every CAMERA_EVERY
+# ticks frees up CPU for the sensor + control loop, which DOES need to
+# run at full rate. The last-seen signal persists between camera frames.
+CAMERA_EVERY = 3   # 10Hz / 3 = ~3.3Hz camera
+
+# Log loop duration every TICK_LOG_EVERY ticks. Helps us spot when the
+# loop falls behind its 100ms budget on the real Pi.
+TICK_LOG_EVERY = 30
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Maze robot main loop")
@@ -84,6 +94,8 @@ def main() -> int:
 
     t0 = time.monotonic()
     frame_id = 0
+    tick_count = 0
+    last_signal: str = "UNKNOWN"
     try:
         while True:
             tick_start = time.monotonic()
@@ -92,26 +104,38 @@ def main() -> int:
                 tracer.info("duration reached, exiting", elapsed_s=elapsed)
                 break
 
-            # Sensors
+            # Sensors (every tick — these drive wall-following).
             if ultras is not None:
                 distances = ultras.poll_all(["front", "left45", "right45"])
                 f, l, r = distances["front"], distances["left45"], distances["right45"]
             else:
-                f = l = r = None  # dry-run: pretend everything is open
+                f = l = r = None  # dry-run
 
-            # Perception
-            signal = "UNKNOWN"
-            if detector is not None and picam is not None:
+            # Perception (every CAMERA_EVERY ticks). last_signal persists
+            # between captures, so the state machine still sees the most
+            # recent decision on the non-capture ticks.
+            if (
+                detector is not None
+                and picam is not None
+                and tick_count % CAMERA_EVERY == 0
+            ):
                 frame = picam.capture_array()
                 reading = detector.detect(frame, frame_id=frame_id)
-                signal = reading.signal
+                last_signal = reading.signal
                 frame_id += 1
 
             # State machine + motor command
-            cmd = sm.step(f, l, r, signal)
+            cmd = sm.step(f, l, r, last_signal)
             _execute(motors, cmd)
 
-            slept = LOOP_DT - (time.monotonic() - tick_start)
+            # Periodic loop-duration health check (helps spot the Pi
+            # falling behind its 100ms budget).
+            tick_dur_ms = (time.monotonic() - tick_start) * 1000.0
+            if tick_count % TICK_LOG_EVERY == 0:
+                tracer.info("tick_health", dur_ms=round(tick_dur_ms, 1), tick=tick_count)
+            tick_count += 1
+
+            slept = LOOP_DT - tick_dur_ms / 1000.0
             if slept > 0:
                 time.sleep(slept)
 

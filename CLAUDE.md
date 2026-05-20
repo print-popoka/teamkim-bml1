@@ -195,12 +195,22 @@ secondary once the baseline scripts exist.
 | Pitfall the PI observed in other teams | Our defense |
 |---|---|
 | Can't smoothly hold the center of the corridor | PD on `right - left` in `control/wall_follow.py` |
-| Constant micro-correcting → falls behind on time | **`DEADBAND_CM = 1.0`** — small errors produce **zero** centering correction. Test: `test_deadband_zero_curvature_for_tiny_error` |
-| Fails to recognize 90° turns / intersections | Already emergent: large `right-left` error at a junction → PD clamps curvature to ±1.0 → sharp arc. Plus `_maybe_log_junction()` emits a `junction_right_opened` / `junction_left_opened` trace event when `r` or `l` exceeds `JUNCTION_CM = 40 cm` — visible in replay for debugging. |
-| Stops then turns at 90° corners (massive time loss) | Locked in CLAUDE.md ("smooth-drive only"). `Motors.drive(L, R)` runs both wheels always; `arc()` slows the inside wheel only; in-place pivot is dead-end fallback only. |
+| Constant micro-correcting → falls behind on time | **`DEADBAND_CM`** — small errors produce **zero** centering correction. Plus **`MAX_DERROR_CM`** caps the D-term so a sensor jump can't spike steering for one bad tick. Plus error-magnitude **speed scaling** down to `SPEED_SCALE_FLOOR` so big corrections happen at a sustainable speed. |
+| Fails to recognize 90° turns / intersections | **Junction commit**: on the rising edge of `r > JUNCTION_CM` (or `l`), the controller locks in `JUNCTION_COMMIT_CURVATURE` for `JUNCTION_COMMIT_TICKS` ticks at `JUNCTION_COMMIT_SPEED`. Stops the car from "smoothing through" a tight right opening even if mid-rotation sensor readings get weird. Tests: `test_junction_*`. |
+| Stops then turns at 90° corners (massive time loss) | Locked in CLAUDE.md ("smooth-drive only"). `Motors.drive(L, R)` runs both wheels always; `arc()` slows the inside wheel only; in-place pivot is dead-end fallback only. Plus **zero-clip below MIN_PWM/2** in `Motors._apply_deadband` — when an arc requests a very small inside-wheel PWM, we snap it to 0 instead of promoting to MIN_PWM, so sharp turns stay sharp. |
 
 Whenever editing the controller or state machine, keep these defenses
 intact — they're the difference between us and the median team.
+
+### Main-loop performance hygiene
+
+`main.py` runs sensors at full `LOOP_HZ` (10 Hz target) but **throttles
+the camera to every CAMERA_EVERY ticks** (~3.3 Hz). Traffic light state
+changes are slow (manual operator), so camera doesn't need to keep up.
+This frees CPU for the control loop. The last camera signal persists
+between captures, so the state machine still sees a recent decision on
+non-capture ticks. A periodic `tick_health` trace event records actual
+loop duration so we can spot Pi-side overruns in replay.
 
 ## Calibration plan — TWO PHASES (do not run all of it at the maze)
 

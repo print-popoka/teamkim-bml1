@@ -176,7 +176,15 @@ class Motors:
 
     @staticmethod
     def _apply_deadband(v: float, floor: int) -> float:
-        if v == 0:
+        """Promote tiny nonzero requests up to the start-PWM floor.
+
+        Special case: if the request is *very* small (below half the floor),
+        snap it to zero instead. This lets ``arc(speed, curvature=0.85)``
+        actually stop the inside wheel for a sharp turn, rather than
+        always promoting it to MIN_PWM. Without this, sharp arcs become
+        accidentally smooth.
+        """
+        if v == 0 or abs(v) < floor / 2:
             return 0.0
         sign = 1 if v > 0 else -1
         return float(sign * max(floor, abs(v)))
