@@ -51,10 +51,17 @@ test.
 │   ├── trace.py              #   JSONL tracer singleton
 │   └── runs/                 #   per-run log files (gitignored)
 │
-└── docs/
-    ├── test_day_checklist.md #   take this to the sample maze
-    └── STATUS.md             #   this file
+├── docs/
+│   ├── test_day_checklist.md          #   take this to the sample maze
+│   ├── hardware_troubleshooting.md    #   multimeter recipe for LEFT45/RIGHT45
+│   └── STATUS.md                      #   this file
+│
+└── tests/                    # NEW — pytest behavioral tests
+    ├── test_wall_follow.py   #   centering / clearance / corner / pivot (10)
+    └── test_state_machine.py #   INIT / FOLLOWING / RED / GREEN / pivot (9)
 ```
+
+(plus ``logs/replay.py`` — JSONL → state machine offline replay + latency report)
 
 ## What works without hardware (right now, on any machine with Python)
 
@@ -62,6 +69,8 @@ test.
 python logs/trace.py                              # demo trace write
 python logs/trace.py show logs/runs/<file>.jsonl  # pretty-print
 python main.py --dry-run --duration 5             # smoke test the loop
+python logs/replay.py logs/runs/<file>.jsonl --latency  # replay + latency
+pytest tests/ -q                                  # 19 behavioral tests
 ```
 
 `main.py --dry-run` exercises the entire perception/control/algorithm
@@ -96,8 +105,8 @@ event, and exit cleanly.
 | Channel | Pins | Result | Action |
 |---|---|---|---|
 | Ultrasonic FRONT | 23/24 | ✅ works (1st sample was warmup outlier; now discarded) | none |
-| Ultrasonic LEFT45 | 25/8 | ❌ echo never went HIGH | **hardware team**: check VCC/GND, then TRIG/ECHO continuity |
-| Ultrasonic RIGHT45 | 7/12 | ❌ echo idle HIGH | **hardware team**: check GND, ECHO wire not shorted to VCC |
+| Ultrasonic LEFT45 | 25/8 | ❌ echo never went HIGH | hardware team — see `docs/hardware_troubleshooting.md` §LEFT45 |
+| Ultrasonic RIGHT45 | 7/12 | ❌ echo idle HIGH | hardware team — see `docs/hardware_troubleshooting.md` §RIGHT45 |
 | Motors L/R | 17/27/18, 22/5/19 | ✅ GPIO/PWM commands OK | visual confirm direction (next Pi session) |
 
 ## Open inquiries (waiting on user action)
