@@ -238,6 +238,34 @@ spacing) is unknown unless the user measures it.
 Hardware capacity is generous — prefer precise, well-tuned code over conservative
 defaults. Use whatever model size / sampling rate / loop frequency the Pi can handle.
 
+## Structured logging (logs/trace.py)
+
+All sensor reads, perception outputs, state transitions, and motor commands
+should be traced via the project tracer:
+
+```python
+from logs.trace import tracer
+
+with tracer.run("my-test"):              # opens logs/runs/<ts>_my-test.jsonl
+    tracer.ultrasonic(sensor="front", raw_cm=12.4, filtered_cm=12.6, valid=True)
+    tracer.camera(signal="STOP", red_area=520, green_area=8)
+    tracer.decision(state="FOLLOW_WALL", action="forward", reason="L=wall F=open R=wall")
+    tracer.motor(left_pwm=50, right_pwm=50, direction="forward")
+```
+
+Calls when no session is active are silent no-ops, so any module can call
+`tracer.foo(...)` unconditionally.
+
+**Reaction-delay measurement** (grading criterion) is computed offline by
+pairing `camera` events with the next `motor` event in the JSONL log —
+the tracer is the data source for that metric. **No metric measurement
+should be done by stopwatching**; always derive from the trace.
+
+Inspect a run: `python logs/trace.py show logs/runs/<file>.jsonl`.
+Smoke-test the writer: `python logs/trace.py` (writes a demo log).
+
+`logs/runs/` is gitignored; only the `logs/` package code is committed.
+
 ## Notes for Claude
 
 - Each script is standalone and tracks the lecture slides 1:1 — keep that mapping when editing.

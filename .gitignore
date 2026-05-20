@@ -6,3 +6,7 @@ yolov8n.pt
 .env
 *.key
 *.pem
+
+# Runtime trace logs (per-run JSONL). Keep the logs/ package code,
+# ignore only the runs/ output directory.
+logs/runs/
