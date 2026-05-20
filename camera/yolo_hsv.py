@@ -42,12 +42,12 @@ model = YOLO("yolov8n.pt")
 # RED: S>=150 V>=100 (rejects RED_OFF S<=143 V<=75)
 # GREEN: S>=135      (rejects GREEN_OFF S<=128; H overlaps so S is sole discriminator)
 red_lower_1 = np.array([0, 150, 100])
-red_upper_1 = np.array([10, 255, 255])
-red_lower_2 = np.array([170, 150, 100])
+red_upper_1 = np.array([12, 255, 255])   # widened from 10 toward canonical 0-15
+red_lower_2 = np.array([165, 150, 100])  # widened from 170 toward canonical 160-180
 red_upper_2 = np.array([179, 255, 255])
 
-green_lower = np.array([40, 135, 100])
-green_upper = np.array([85, 255, 255])
+green_lower = np.array([35, 135, 100])   # widened from 40 toward canonical 35-90
+green_upper = np.array([90, 255, 255])   # widened from 85 toward canonical 35-90
 
 MIN_COLOR_RATIO = 0.05  # at least 5% of the crop must match
 WIN_MARGIN = 1.5  # winner must beat the other color by this factor

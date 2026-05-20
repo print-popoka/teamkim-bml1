@@ -36,12 +36,12 @@ time.sleep(1)
 #   YELLOW_OFF (H 35-37) safely below green_lower H=40.
 # Real test uses MORE saturated colors -> these thresholds are conservative-safe.
 red_lower_1 = np.array([0, 150, 100])
-red_upper_1 = np.array([10, 255, 255])
-red_lower_2 = np.array([170, 150, 100])
+red_upper_1 = np.array([12, 255, 255])   # widened from 10 toward canonical 0-15
+red_lower_2 = np.array([165, 150, 100])  # widened from 170 toward canonical 160-180
 red_upper_2 = np.array([179, 255, 255])
 
-green_lower = np.array([40, 135, 100])
-green_upper = np.array([85, 255, 255])
+green_lower = np.array([35, 135, 100])   # widened from 40 toward canonical 35-90
+green_upper = np.array([90, 255, 255])   # widened from 85 toward canonical 35-90
 
 # Winner must beat the other color by this factor to commit a decision.
 WIN_MARGIN = 1.5
