@@ -148,6 +148,12 @@ secondary once the baseline scripts exist.
 - **Traffic light**: RED→STOP / GREEN→GO only (confirmed — no yellow in real
   test). Yellow handling has been removed from `hsv_circle.py` and
   `yolo_hsv.py`. Do not re-add unless the spec changes.
+- **Traffic light safety semantics**: only RED matters. GREEN==UNKNOWN==no-signal
+  all collapse to "keep doing what you were doing". HSV thresholds were therefore
+  tuned conservative-on-GREEN (occasional false-negative on GREEN is harmless;
+  RED must never be missed). Exception handled in main-loop state machine:
+  while STOPPED at a red light, only an explicit GREEN releases the brake —
+  UNKNOWN holds the stop. To be implemented in algorithm/state machine phase.
 - **Calibration target**: printed paper traffic light (alpha-test props) for
   current HSV tuning. Real evaluation will use **more saturated** colors —
   so tuning to the dim printed values is conservative-safe (saturated reds
