@@ -306,6 +306,44 @@ This repo is public. Privacy rules override convenience.
 If a doc file contains restricted info, scrub before commit. When in doubt,
 ask the user.
 
+## Git safety rules (HARD CONSTRAINTS, set 2026-05-20)
+
+Applies to every Claude / Codex / agent session and any
+connector/plugin (Drive, Gmail, etc.) that could exfiltrate data.
+
+1. **Never run Git commands in the home directory `~`.**
+   Especially never `git add .`, `git commit`, or `git push` from `~`.
+
+2. **Run Git only inside the intended project repo.**
+   Examples: `~/teamkim-bml1`, `~/everland-kiosk`, or any path the user
+   explicitly names. This project happens to live at
+   `/Users/pill/Downloads/BML` — that is the repo root itself, not a
+   parent folder. Do NOT `cd ..` and run git from `~/Downloads`.
+
+3. **Verify location before any Git work.** Run `pwd` and
+   `git rev-parse --show-toplevel` and confirm both point at the
+   intended project repo before proceeding.
+
+4. **Forbidden Git working directories:** `~`, `~/Downloads`, or any
+   general / parent folder that may contain mixed personal files.
+
+5. **Before pushing to a public repo, inspect the staged set.**
+   `git status --short` and `git diff --cached --name-only` — make
+   sure no unintended file slipped in.
+
+6. **Never copy potentially sensitive files into a public repo.**
+   Passports, IDs, raw PDFs, HEIC photos, downloaded personal documents.
+   If a file is needed, use a redacted/synthetic copy.
+
+7. **Never use `git add -f` to bypass `.gitignore`** unless the user
+   explicitly asks for it.
+
+8. **Before `git push` on a public repo with a remote, re-verify**
+   the target branch and the file list one more time.
+
+These rules also apply to outbound connectors (Drive, Gmail, etc.) —
+do not stage personal artifacts to a public surface.
+
 ## Communication rule
 
 After ANY change that requires the user to run something on the Pi, end the
