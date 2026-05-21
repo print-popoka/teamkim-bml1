@@ -344,6 +344,21 @@ connector/plugin (Drive, Gmail, etc.) that could exfiltrate data.
 These rules also apply to outbound connectors (Drive, Gmail, etc.) —
 do not stage personal artifacts to a public surface.
 
+### Permission-request format
+
+When asking the user to confirm a sensitive / privacy-adjacent action
+(committing a photo or PDF to public repo, sharing through a connector,
+adding identifying info to a doc, etc.), start the request with a
+bracketed tag and keep the question to ONE line:
+
+  `[개인정보] 이 스크린샷 안에 학번/이름 보이는데 그대로 올릴까요?`
+  `[민감정보] 측정 사진에 회로 외 다른 화면 같이 찍혔는데 올려도 돼요?`
+  `[보안] .env 비슷한 키 들어간 것 같은데 commit 진행할까요?`
+
+Do NOT pad with paragraphs of context — the tag + a single yes/no
+question is the whole request. Only after the user answers do we
+proceed with longer reasoning if needed.
+
 ## Communication rule
 
 After ANY change that requires the user to run something on the Pi, end the
