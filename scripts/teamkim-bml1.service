@@ -21,9 +21,11 @@ StandardError=journal
 # Tunables. Override per-instance with: sudo systemctl edit teamkim-bml1
 # (creates a drop-in at /etc/systemd/system/teamkim-bml1.service.d/override.conf)
 Environment=REPO_DIR=/home/team2/teamkim-bml1
-Environment=BOOT_DELAY_S=15
-Environment=RUN_DURATION_S=60
+Environment=BOOT_DELAY_S=20
+Environment=RUN_DURATION_S=300
 Environment=RUN_NAME=boot_run
+# Swap to main.py once integration test is signed off.
+Environment=RUN_SCRIPT=integration_test.py
 
 [Install]
 WantedBy=multi-user.target
