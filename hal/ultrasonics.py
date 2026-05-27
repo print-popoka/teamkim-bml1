@@ -49,6 +49,16 @@ DEFAULT_PINS: dict[str, tuple[int, int]] = {
 DEFAULT_WINDOW = 5
 DEFAULT_WARMUP = 2
 
+# Bias correction — calibrated 2026-05-24, FRONT sensor on lab floor.
+# 2-point linear fit on MEDIAN of 200-sample runs:
+#   true=10cm  -> median=9.24cm
+#   true=30cm  -> median=28.71cm
+# Linear model:  median_raw = SCALE * true_cm + OFFSET
+# Inverse used at runtime:  corrected = (median_raw - OFFSET) / SCALE
+# Re-fit at the sample maze on 우드락 if surface changes the bias.
+BIAS_SCALE = 0.9735
+BIAS_OFFSET = -0.495
+
 
 @dataclass
 class _SensorState:
@@ -130,14 +140,17 @@ class Ultrasonics:
 
         raw = self._raw_ping(st)
         st.window.append(raw)
-        filtered = self._filter(st.window)
+        filtered_median = self._filter(st.window)
+        corrected = (
+            self._apply_bias(filtered_median) if filtered_median is not None else None
+        )
         tracer.ultrasonic(
             sensor=name,
             raw_cm=raw,
-            filtered_cm=filtered,
-            valid=filtered is not None,
+            filtered_cm=corrected,
+            valid=corrected is not None,
         )
-        return filtered
+        return corrected
 
     def poll_all(self, names: Iterable[str] | None = None) -> dict[str, float | None]:
         """Round-robin poll. 10ms cooldown between pings keeps echoes clean."""
@@ -178,6 +191,15 @@ class Ultrasonics:
         if d < 2 or d > 400:
             return None
         return d
+
+    @staticmethod
+    def _apply_bias(raw_median_cm: float) -> float:
+        """Invert the measured linear bias so the controller sees true cm.
+
+        See BIAS_SCALE / BIAS_OFFSET at module top for the calibration
+        record. Inverse of ``raw = SCALE * true + OFFSET``.
+        """
+        return (raw_median_cm - BIAS_OFFSET) / BIAS_SCALE
 
     @staticmethod
     def _filter(window: deque[float | None]) -> float | None:
