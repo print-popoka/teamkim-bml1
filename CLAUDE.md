@@ -66,6 +66,19 @@ pip3 install torch torchvision --extra-index-url https://download.pytorch.org/wh
 pip install ultralytics --no-deps --break-system-packages
 ```
 
+## Headless autostart (battery-only at the sample maze)
+
+The Pi at the sample maze has no keyboard/mouse. A systemd unit
+(`scripts/teamkim-bml1.service`) runs `main.py` on every boot after a
+short delay. Install once with `bash scripts/install_autostart.sh`,
+then plug-battery == one drive run, trace lands on the SD card.
+
+Full workflow + tunables + recovery: `docs/headless_boot.md`.
+
+This **does not** cover interactive calibration tools
+(`motor_calibration.py`, per-distance `ultrasonic_noise.py` series) —
+those need keyboard or phone-SSH.
+
 ## Run
 
 ```bash

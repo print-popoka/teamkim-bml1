@@ -1,0 +1,29 @@
+[Unit]
+Description=teamkim-bml1 maze robot — run main.py on boot
+After=multi-user.target
+
+[Service]
+Type=simple
+User=team2
+Group=team2
+WorkingDirectory=/home/team2/teamkim-bml1
+ExecStart=/bin/bash /home/team2/teamkim-bml1/scripts/run_on_boot.sh
+
+# One drive per power-cycle. Don't auto-restart — if main.py exits we want
+# the car to STAY stopped, not start a fresh run on its own.
+Restart=no
+
+# Send stdout/stderr to the journal so `journalctl -u teamkim-bml1 -b`
+# shows what happened this boot.
+StandardOutput=journal
+StandardError=journal
+
+# Tunables. Override per-instance with: sudo systemctl edit teamkim-bml1
+# (creates a drop-in at /etc/systemd/system/teamkim-bml1.service.d/override.conf)
+Environment=REPO_DIR=/home/team2/teamkim-bml1
+Environment=BOOT_DELAY_S=15
+Environment=RUN_DURATION_S=60
+Environment=RUN_NAME=boot_run
+
+[Install]
+WantedBy=multi-user.target
