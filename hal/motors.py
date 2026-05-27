@@ -54,9 +54,9 @@ LEFT_TRIM: float = 1.0
 RIGHT_TRIM: float = 1.0
 
 SPEED_CM_PER_SEC_AT_50: float = 25.0   # placeholder
-# Updated 2026-05-24 from a single visual trial: PWM 50 for 0.5s ≈ 180°,
-# so ≈ 360 deg/s. Refine after a proper protractor-measured run.
-TURN_DEG_PER_SEC_AT_50: float = 360.0
+# Measured 2026-05-24: PWM 50 for 0.30s rotates exactly 90° on the
+# current floor/battery. => 90 / 0.30 = 300 deg/s.
+TURN_DEG_PER_SEC_AT_50: float = 300.0
 
 
 @dataclass(frozen=True)
