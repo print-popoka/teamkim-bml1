@@ -257,7 +257,7 @@ This is a one-shot calibration opportunity. By that day we must have ready:
   1. `sensor/ultrasonic_noise.py` (DONE) — run per sensor at fixed distances
      in the actual maze. Capture noise floor, bias, and 45°-mount-angle effect
      on 우드락 walls.
-  2. Motor calibration script (NOT YET WRITTEN) — minimum PWM, left/right
+  2. `motor/motor_calibration.py` — minimum PWM, left/right
      asymmetry, straight-drift, 90° turn time.
   3. `camera/hsv_picker.py` (DONE) — re-measure red/green HSV under sample
      maze lighting with sample maze printed traffic light.

@@ -29,9 +29,13 @@ from __future__ import annotations
 import argparse
 import math
 import statistics
+import sys
 import time
 
-import RPi.GPIO as GPIO
+try:
+    import RPi.GPIO as GPIO
+except ImportError:
+    GPIO = None
 
 # ---------------------------------------------------------------------- #
 # Pin map  --  must match motor/motor.py exactly.
@@ -40,6 +44,33 @@ IN1, IN2 = 17, 27   # left motor (A) direction
 IN3, IN4 = 22, 5    # right motor (B) direction
 ENA, ENB = 18, 19   # PWM enables (A=left, B=right)
 PWM_FREQ = 1000
+
+
+def require_gpio() -> None:
+    if GPIO is None:
+        print("[FAIL] RPi.GPIO is not installed. Run this script on the Raspberry Pi.")
+        sys.exit(1)
+
+
+def positive_int(raw: str) -> int:
+    value = int(raw)
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be >= 1")
+    return value
+
+
+def positive_float(raw: str) -> float:
+    value = float(raw)
+    if value <= 0:
+        raise argparse.ArgumentTypeError("must be > 0")
+    return value
+
+
+def duty_cycle(raw: str) -> int:
+    value = int(raw)
+    if not 0 <= value <= 100:
+        raise argparse.ArgumentTypeError("must be between 0 and 100")
+    return value
 
 
 # ---------------------------------------------------------------------- #
@@ -359,19 +390,20 @@ def main() -> None:
         choices=["minpwm", "speed", "drift", "turn"],
         help="Skip tests by name",
     )
-    ap.add_argument("--trials", type=int, default=3, help="Trials per measurement (default 3)")
-    ap.add_argument("--speed-duration", type=float, default=1.0)
-    ap.add_argument("--drift-duration", type=float, default=2.0)
-    ap.add_argument("--drift-pwm", type=int, default=50)
-    ap.add_argument("--turn-pwm", type=int, default=50)
+    ap.add_argument("--trials", type=positive_int, default=3, help="Trials per measurement (default 3)")
+    ap.add_argument("--speed-duration", type=positive_float, default=1.0)
+    ap.add_argument("--drift-duration", type=positive_float, default=2.0)
+    ap.add_argument("--drift-pwm", type=duty_cycle, default=50)
+    ap.add_argument("--turn-pwm", type=duty_cycle, default=50)
     ap.add_argument(
         "--speed-pwms",
-        type=int,
+        type=duty_cycle,
         nargs="+",
         default=[30, 50, 70, 90],
         help="PWM duties to test in speed table",
     )
     args = ap.parse_args()
+    require_gpio()
 
     pwm_a, pwm_b = setup()
 

@@ -24,12 +24,16 @@ Usage examples:
 
 import argparse
 import statistics
+import sys
 import time
 
-import RPi.GPIO as GPIO
+try:
+    import RPi.GPIO as GPIO
+except ImportError:
+    GPIO = None
 
 
-def measure_once(trig, echo, timeout=0.03):
+def measure_once(trig, echo, timeout=0.015):
     """Single HC-SR04 ping. Returns distance in cm, or None on timeout."""
     GPIO.output(trig, False)
     time.sleep(0.002)
@@ -53,17 +57,38 @@ def measure_once(trig, echo, timeout=0.03):
     return (pulse_end - pulse_start) * 17150
 
 
+def positive_int(raw):
+    value = int(raw)
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be >= 1")
+    return value
+
+
+def non_negative_float(raw):
+    value = float(raw)
+    if value < 0:
+        raise argparse.ArgumentTypeError("must be >= 0")
+    return value
+
+
+def require_gpio():
+    if GPIO is None:
+        print("[FAIL] RPi.GPIO is not installed. Run this script on the Raspberry Pi.")
+        sys.exit(1)
+
+
 def main():
     ap = argparse.ArgumentParser(description="HC-SR04 noise characterization")
     ap.add_argument("--trig", type=int, default=23, help="TRIG BCM pin (default 23 = FRONT)")
     ap.add_argument("--echo", type=int, default=24, help="ECHO BCM pin (default 24 = FRONT)")
-    ap.add_argument("--n", type=int, default=200, help="number of samples (default 200)")
+    ap.add_argument("--n", type=positive_int, default=200, help="number of samples (default 200)")
     ap.add_argument(
         "--interval",
-        type=float,
-        default=0.05,
-        help="seconds between pings (default 0.05 = 20Hz, above 10ms cooldown)",
+        type=non_negative_float,
+        default=0.04,
+        help="seconds between pings (default 0.04 = 25Hz, above 10ms cooldown)",
     )
+    ap.add_argument("--timeout", type=non_negative_float, default=0.015)
     ap.add_argument(
         "--true",
         dest="true_cm",
@@ -79,6 +104,7 @@ def main():
         help="discard this many initial pings (HC-SR04 first ping is noisy; default 2)",
     )
     args = ap.parse_args()
+    require_gpio()
 
     GPIO.setmode(GPIO.BCM)
     GPIO.setwarnings(False)
@@ -103,7 +129,7 @@ def main():
 
     try:
         for i in range(args.n):
-            d = measure_once(args.trig, args.echo)
+            d = measure_once(args.trig, args.echo, args.timeout)
             if d is None:
                 fails += 1
                 if not args.quiet:

@@ -15,20 +15,39 @@ processes.
 Run: python camera/yolo_hsv.py     (quit with 'q' in the preview window)
 """
 
+import argparse
 import time
 from collections import Counter, deque
+
+TRAFFIC_LIGHT_CLASS_ID = 9  # COCO class index for "traffic light"
+CONF_THRESHOLD = 0.25
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="YOLO fallback + HSV traffic-light detection")
+    parser.add_argument("--width", type=int, default=320, help="camera width")
+    parser.add_argument("--height", type=int, default=240, help="camera height")
+    parser.add_argument(
+        "--yolo-every",
+        type=int,
+        default=4,
+        help="run YOLO every N frames and reuse the last signal between runs",
+    )
+    parser.add_argument("--print-every", type=int, default=4, help="print every N frames")
+    parser.add_argument("--conf", type=float, default=CONF_THRESHOLD)
+    return parser.parse_args()
+
+
+args = parse_args()
 
 import cv2
 import numpy as np
 from picamera2 import Picamera2
 from ultralytics import YOLO
 
-TRAFFIC_LIGHT_CLASS_ID = 9  # COCO class index for "traffic light"
-CONF_THRESHOLD = 0.25
-
 # Camera --------------------------------------------------------------
 picam2 = Picamera2()
-picam2.preview_configuration.main.size = (640, 480)
+picam2.preview_configuration.main.size = (args.width, args.height)
 picam2.preview_configuration.main.format = "RGB888"  # numpy order is BGR
 picam2.configure("preview")
 picam2.start()
@@ -99,45 +118,66 @@ def smooth(raw):
 
 
 print("[INFO] Starting YOLO + HSV hybrid traffic light detection...")
+print(
+    f"[INFO] size={args.width}x{args.height} "
+    f"yolo_every={args.yolo_every} print_every={args.print_every}"
+)
 
 try:
+    frame_id = 0
+    last_best_label = "UNKNOWN"
+    last_best_box = None
+    last_best_conf = 0.0
     while True:
         frame = picam2.capture_array()
+        frame_id += 1
 
-        results = model(
-            frame,
-            classes=[TRAFFIC_LIGHT_CLASS_ID],
-            conf=CONF_THRESHOLD,
-            verbose=False,
-        )
-        r = results[0]
+        should_run_yolo = args.yolo_every <= 1 or frame_id % args.yolo_every == 1
 
-        best_label = "UNKNOWN"
-        best_conf = 0.0
-        best_box = None
+        if should_run_yolo:
+            results = model(
+                frame,
+                classes=[TRAFFIC_LIGHT_CLASS_ID],
+                conf=args.conf,
+                verbose=False,
+            )
+            r = results[0]
 
-        if r.boxes is not None and len(r.boxes) > 0:
-            for box in r.boxes:
-                conf = float(box.conf[0])
-                if conf < best_conf:
-                    continue
-                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                crop = frame[max(0, y1) : y2, max(0, x1) : x2]
-                label, red_r, green_r = classify_crop(crop)
-                if label != "UNKNOWN":
-                    best_label = label
-                    best_conf = conf
-                    best_box = (x1, y1, x2, y2, red_r, green_r)
+            best_label = "UNKNOWN"
+            best_conf = 0.0
+            best_box = None
+
+            if r.boxes is not None and len(r.boxes) > 0:
+                for box in r.boxes:
+                    conf = float(box.conf[0])
+                    if conf < best_conf:
+                        continue
+                    x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                    crop = frame[max(0, y1) : y2, max(0, x1) : x2]
+                    label, red_r, green_r = classify_crop(crop)
+                    if label != "UNKNOWN":
+                        best_label = label
+                        best_conf = conf
+                        best_box = (x1, y1, x2, y2, red_r, green_r)
+
+            last_best_label = best_label
+            last_best_conf = best_conf
+            last_best_box = best_box
+        else:
+            best_label = last_best_label
+            best_conf = last_best_conf
+            best_box = last_best_box
 
         signal = smooth(best_label)
 
         if best_box is not None:
             x1, y1, x2, y2, red_r, green_r = best_box
-            print(
-                f"[SIGNAL] {signal:<7} (raw={best_label:<7}) "
-                f"box=({x1},{y1},{x2},{y2}) conf={best_conf:.2f} "
-                f"red={red_r:.2%} green={green_r:.2%}"
-            )
+            if args.print_every > 0 and frame_id % args.print_every == 0:
+                print(
+                    f"[SIGNAL] {signal:<7} (raw={best_label:<7}) "
+                    f"box=({x1},{y1},{x2},{y2}) conf={best_conf:.2f} "
+                    f"red={red_r:.2%} green={green_r:.2%}"
+                )
             color = (
                 (0, 0, 255) if best_label == "STOP"
                 else (0, 255, 0) if best_label == "GO"
@@ -149,7 +189,8 @@ try:
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2,
             )
         else:
-            print(f"[SIGNAL] {signal:<7} (no traffic light detected)")
+            if args.print_every > 0 and frame_id % args.print_every == 0:
+                print(f"[SIGNAL] {signal:<7} (no traffic light detected)")
 
         cv2.imshow("YOLO+HSV Traffic Light", frame)
         if cv2.waitKey(1) & 0xFF == ord("q"):

@@ -12,10 +12,16 @@
 │   ├── yolo.py         # YOLOv8n object detection
 │   ├── hsv.py          # HSV traffic-light detection
 │   └── hsv_circle.py   # HSV + circularity filter
+├── algorithm/
+│   ├── maze_logic.py   # pure maze/demo decision logic
+│   └── simulate.py     # local logic simulation
 ├── motor/
-│   └── motor.py        # L298N two-motor PWM control
-└── sensor/
-    └── ultrasonic.py   # HC-SR04 distance measurement
+│   ├── motor.py        # L298N two-motor PWM control
+│   └── motor_calibration.py
+├── sensor/
+│   └── ultrasonic.py   # HC-SR04 distance measurement
+└── tests/
+    └── test_maze_logic.py
 ```
 
 ## Hardware
@@ -46,4 +52,15 @@ python camera/hsv.py
 python motor/motor.py
 python sensor/ultrasonic.py
 python hardware_check.py         # motor + 3x ultrasonic assembly check
+python algorithm/simulate.py     # local logic simulation, no hardware needed
+python -m unittest tests/test_maze_logic.py
 ```
+
+## Performance-oriented runtime defaults
+
+- `camera/hsv_circle.py` and `camera/hsv.py` default to `320x240`, top ROI,
+  and throttled logging.
+- `camera/yolo.py` defaults to `320x240` and saves only sampled frames.
+- `camera/yolo_hsv.py` defaults to running YOLO every 4 frames and reusing the
+  last decision between YOLO passes.
+- Ultrasonic scripts use shorter maze-oriented echo timeouts by default.

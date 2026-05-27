@@ -3,17 +3,35 @@
 Improvements over the lecture baseline:
   - picamera2's "RGB888" actually returns BGR-ordered ndarrays, so we use
     COLOR_BGR2HSV (not RGB2HSV) — fixes "red looks like blue" bugs.
-  - ROI: only the upper 70% of the frame is searched (signals are overhead).
+  - ROI: only the upper portion of the frame is searched (signals are overhead).
   - Morphological open+close to kill speckle and fill small gaps.
   - Wider red range and lower S floor — real LED reds desaturate at distance.
   - Temporal smoothing: 5-frame majority vote, avoids flickering decisions.
-  - Prints raw mask areas every loop for easy on-site tuning.
+  - Throttles debug printing so terminal I/O does not dominate the loop.
 
 Run: python camera/hsv_circle.py     (quit with Ctrl+C)
 """
 
+import argparse
 import time
 from collections import Counter, deque
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Fast HSV circle traffic-light detection")
+    parser.add_argument("--width", type=int, default=320, help="camera width")
+    parser.add_argument("--height", type=int, default=240, help="camera height")
+    parser.add_argument(
+        "--roi-ratio",
+        type=float,
+        default=0.6,
+        help="fraction of image height to scan from the top",
+    )
+    parser.add_argument("--print-every", type=int, default=5, help="print every N frames")
+    parser.add_argument("--sleep", type=float, default=0.05, help="loop sleep in seconds")
+    return parser.parse_args()
+
+
+args = parse_args()
 
 import cv2
 import numpy as np
@@ -21,7 +39,7 @@ from picamera2 import Picamera2
 
 # Camera --------------------------------------------------------------
 picam2 = Picamera2()
-picam2.preview_configuration.main.size = (640, 480)
+picam2.preview_configuration.main.size = (args.width, args.height)
 picam2.preview_configuration.main.format = "RGB888"  # libcamera quirk: numpy order is BGR
 picam2.configure("preview")
 picam2.start()
@@ -47,10 +65,12 @@ green_upper = np.array([90, 255, 255])   # widened from 85 toward canonical 35-9
 WIN_MARGIN = 1.5
 
 # Shape thresholds ----------------------------------------------------
-min_area = 200
+area_scale = (args.width * args.height) / (640 * 480)
+length_scale = min(args.width / 640, args.height / 480)
+min_area = max(50, int(200 * area_scale))
 min_circularity = 0.55
-min_radius = 6
-max_radius = 140
+min_radius = max(3, int(6 * length_scale))
+max_radius = max(30, int(140 * length_scale))
 
 # Temporal smoothing --------------------------------------------------
 SMOOTH_WINDOW = 5
@@ -102,15 +122,22 @@ def smooth_signal(raw):
 
 
 print("[INFO] Starting HSV circle traffic light detection...")
+print(
+    f"[INFO] size={args.width}x{args.height} roi={args.roi_ratio:.2f} "
+    f"print_every={args.print_every} sleep={args.sleep}s"
+)
 print("[INFO] Tune red/green HSV ranges if [DEBUG] areas look wrong under your lighting.")
 
 try:
+    frame_id = 0
     while True:
         frame = picam2.capture_array()
+        frame_id += 1
 
-        # ROI: upper 70% of the image (traffic lights are overhead).
+        # ROI: upper portion of the image (traffic lights are overhead).
         h, w = frame.shape[:2]
-        roi = frame[: int(h * 0.7), :]
+        roi_h = max(1, min(h, int(h * args.roi_ratio)))
+        roi = frame[:roi_h, :]
 
         # picamera2 RGB888 -> BGR in numpy, so BGR2HSV.
         hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
@@ -137,14 +164,17 @@ try:
 
         signal = smooth_signal(raw_signal)
 
-        print(
-            f"[SIGNAL] {signal:<7} (raw={raw_signal:<7}) "
-            f"red_circle={red_circle_area:>5} green_circle={green_circle_area:>5} "
-            f"| red_raw={red_raw_area:>5} green_raw={green_raw_area:>5}"
-        )
+        if args.print_every > 0 and frame_id % args.print_every == 0:
+            print(
+                f"[SIGNAL] {signal:<7} (raw={raw_signal:<7}) "
+                f"red_circle={red_circle_area:>5} green_circle={green_circle_area:>5} "
+                f"| red_raw={red_raw_area:>5} green_raw={green_raw_area:>5}"
+            )
 
-        time.sleep(0.2)
+        if args.sleep > 0:
+            time.sleep(args.sleep)
 
 except KeyboardInterrupt:
     print("\nCleaning up...")
+finally:
     picam2.stop()

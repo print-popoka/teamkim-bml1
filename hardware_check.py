@@ -71,27 +71,33 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--samples",
-        type=int,
+        type=positive_int,
         default=5,
         help="ultrasonic samples per sensor",
     )
     parser.add_argument(
         "--warmup",
-        type=int,
+        type=non_negative_int,
         default=1,
         help="discard this many initial pings per sensor (HC-SR04 first ping is noisy)",
     )
     parser.add_argument(
         "--motor-speed",
-        type=int,
+        type=duty_cycle,
         default=25,
         help="motor PWM duty cycle, 0-100",
     )
     parser.add_argument(
         "--motor-duration",
-        type=float,
+        type=non_negative_float,
         default=0.7,
         help="seconds for each motor pulse",
+    )
+    parser.add_argument(
+        "--ultrasonic-timeout",
+        type=non_negative_float,
+        default=0.015,
+        help="seconds to wait for each HC-SR04 echo edge",
     )
     parser.add_argument(
         "--yes",
@@ -99,6 +105,34 @@ def parse_args() -> argparse.Namespace:
         help="do not pause before motor movement",
     )
     return parser.parse_args()
+
+
+def positive_int(raw: str) -> int:
+    value = int(raw)
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be >= 1")
+    return value
+
+
+def non_negative_int(raw: str) -> int:
+    value = int(raw)
+    if value < 0:
+        raise argparse.ArgumentTypeError("must be >= 0")
+    return value
+
+
+def non_negative_float(raw: str) -> float:
+    value = float(raw)
+    if value < 0:
+        raise argparse.ArgumentTypeError("must be >= 0")
+    return value
+
+
+def duty_cycle(raw: str) -> int:
+    value = int(raw)
+    if not 0 <= value <= 100:
+        raise argparse.ArgumentTypeError("must be between 0 and 100")
+    return value
 
 
 def require_gpio() -> None:
@@ -205,7 +239,7 @@ def wait_for_echo_state(pin: int, target: int, timeout: float) -> float | None:
     return time.perf_counter()
 
 
-def measure_distance(sensor: UltrasonicSensor, timeout: float = 0.03) -> tuple[float | None, str]:
+def measure_distance(sensor: UltrasonicSensor, timeout: float = 0.015) -> tuple[float | None, str]:
     GPIO.output(sensor.trig, GPIO.LOW)
     # Longer settle reduces the first-ping outlier (HC-SR04 needs the
     # transmitter capacitor to bleed off between pulses).
@@ -233,7 +267,12 @@ def measure_distance(sensor: UltrasonicSensor, timeout: float = 0.03) -> tuple[f
     return distance, "ok"
 
 
-def run_ultrasonic_test(sensors: list[UltrasonicSensor], samples: int, warmup: int = 1) -> None:
+def run_ultrasonic_test(
+    sensors: list[UltrasonicSensor],
+    samples: int,
+    timeout: float,
+    warmup: int = 1,
+) -> None:
     print("=== Ultrasonic test ===")
     print("Put a flat object 20-50 cm in front of each sensor while it is tested.")
     overall_pass = True
@@ -242,12 +281,12 @@ def run_ultrasonic_test(sensors: list[UltrasonicSensor], samples: int, warmup: i
         print(f"[CHECK] {sensor.name} TRIG={sensor.trig} ECHO={sensor.echo}")
         # Warmup pings — discarded. HC-SR04 first ping after idle is unreliable.
         for _ in range(max(0, warmup)):
-            measure_distance(sensor)
+            measure_distance(sensor, timeout)
             time.sleep(0.06)
         distances = []
         failures = []
         for idx in range(max(1, samples)):
-            distance, status = measure_distance(sensor)
+            distance, status = measure_distance(sensor, timeout)
             if distance is None:
                 failures.append(status)
                 print(f"  sample {idx + 1}: FAIL - {status}")
@@ -290,7 +329,12 @@ def main() -> None:
 
     try:
         if not args.skip_ultrasonic:
-            run_ultrasonic_test(sensors, args.samples, args.warmup)
+            run_ultrasonic_test(
+                sensors,
+                args.samples,
+                args.ultrasonic_timeout,
+                args.warmup,
+            )
         if include_motor:
             run_motor_test(args.motor_speed, args.motor_duration, args.yes)
     finally:
