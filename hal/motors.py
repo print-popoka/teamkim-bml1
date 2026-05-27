@@ -53,6 +53,18 @@ MAX_PWM: int = 90
 LEFT_TRIM: float = 1.0
 RIGHT_TRIM: float = 1.0
 
+# Wiring-polarity correction. Set to -1 if a side is wired reverse polarity
+# (battery + and - swapped on the motor leads, so "forward" GPIO state
+# spins the wheel backward).
+# Verified 2026-05-24: BOTH sides wired reverse on the assembled chassis.
+# forward(50,50) made the car go BACKWARD; calibration turn 0.3s = 90°
+# still worked because both polarity flips cancel in the pivot geometry
+# (the rotation rate is the same, just the direction was opposite to the
+# command label). With -1/-1 applied, forward → forward, pivot_left →
+# real CCW, pivot_right → real CW.
+LEFT_POLARITY: int = -1
+RIGHT_POLARITY: int = -1
+
 SPEED_CM_PER_SEC_AT_50: float = 25.0   # placeholder
 # Measured 2026-05-24: PWM 50 for 0.30s rotates exactly 90° on the
 # current floor/battery. => 90 / 0.30 = 300 deg/s.
@@ -124,8 +136,10 @@ class Motors:
         r = self._apply_deadband(self._clamp(right_pwm * RIGHT_TRIM), MIN_PWM_RIGHT)
 
         if not self._dry_run and self._set_up:
-            self._set_side(LEFT_IN1, LEFT_IN2, l)
-            self._set_side(RIGHT_IN3, RIGHT_IN4, r)
+            # Apply wiring polarity at the very last step. PWM magnitude
+            # is direction-independent; only the IN1/IN2 sign flips.
+            self._set_side(LEFT_IN1, LEFT_IN2, l * LEFT_POLARITY)
+            self._set_side(RIGHT_IN3, RIGHT_IN4, r * RIGHT_POLARITY)
             assert self._pwm_a is not None and self._pwm_b is not None
             self._pwm_a.ChangeDutyCycle(abs(l))
             self._pwm_b.ChangeDutyCycle(abs(r))
