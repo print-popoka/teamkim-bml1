@@ -29,7 +29,9 @@ from logs.trace import tracer
 Signal = Literal["STOP", "GO", "UNKNOWN"]
 
 
-# HSV thresholds — keep in sync with camera/hsv_circle.py.
+# HSV thresholds — single source of truth. The debug CLI
+# camera/hsv_circle.py imports these (with snake_case aliases) so the
+# two cannot drift. Update here when re-calibrating against new lighting.
 RED_LOWER_1 = np.array([0, 150, 100])
 RED_UPPER_1 = np.array([12, 255, 255])
 RED_LOWER_2 = np.array([165, 150, 100])

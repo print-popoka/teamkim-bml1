@@ -1,8 +1,16 @@
-"""Pure maze and demo decision logic.
+"""Pure maze and demo decision logic — OFFLINE SIMULATOR ONLY.
 
-This module has no GPIO, camera, or OpenCV dependencies. Feed it filtered
-sensor distances and traffic-light labels, then send the returned motor
-command to the hardware layer.
+Production main loop (``main.py``) does NOT use the controllers in this
+file. The live wall-follower is ``algorithm/wall_follower_sm.py``
+delegating to ``control/wall_follow.py`` (smooth PD wall-follow with
+junction commit, corner anticipation, D-clamp, deadband). The classes
+here exist for ``algorithm/simulate.py`` and ``tests/test_maze_logic.py``
+to validate discrete-decision invariants (right-hand priority, dead-end
+U-turn, RED latch, etc.) without GPIO/camera/OpenCV deps.
+
+If a behavior change is needed in production, update the smooth-PD path
+in ``control/wall_follow.py`` and ``algorithm/wall_follower_sm.py`` —
+those are the ones ``main.py`` actually runs.
 """
 
 from __future__ import annotations

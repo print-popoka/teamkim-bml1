@@ -1,4 +1,11 @@
-"""Small command-line simulations for the pure robot decision logic."""
+"""Offline simulator for the discrete maze/demo decision logic.
+
+Drives the ``RightHandMazeController`` and ``GreenStopDemoController``
+from ``algorithm/maze_logic.py`` through a few hand-written scenarios
+and prints the resulting actions. NOT the production controller — see
+``algorithm/__init__.py`` and ``algorithm/maze_logic.py`` for the split
+between simulator and the live ``WallFollowerSM`` used by ``main.py``.
+"""
 
 from __future__ import annotations
 

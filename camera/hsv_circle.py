@@ -37,6 +37,23 @@ import cv2
 import numpy as np
 from picamera2 import Picamera2
 
+# Single source of truth for HSV color thresholds + circularity + smoothing.
+# Imported with snake_case aliases so the downstream loop below keeps using
+# its existing names. Area/radius bounds stay local because this CLI supports
+# arbitrary --width/--height (production detector uses fixed resolution).
+from perception.traffic_light import (
+    RED_LOWER_1 as red_lower_1,
+    RED_UPPER_1 as red_upper_1,
+    RED_LOWER_2 as red_lower_2,
+    RED_UPPER_2 as red_upper_2,
+    GREEN_LOWER as green_lower,
+    GREEN_UPPER as green_upper,
+    MIN_CIRCULARITY as min_circularity,
+    WIN_MARGIN,
+    SMOOTH_WINDOW,
+    SMOOTH_MIN_VOTES,
+)
+
 # Camera --------------------------------------------------------------
 picam2 = Picamera2()
 picam2.preview_configuration.main.size = (args.width, args.height)
@@ -45,36 +62,24 @@ picam2.configure("preview")
 picam2.start()
 time.sleep(1)
 
-# HSV ranges ----------------------------------------------------------
-# Tuned 2026-05-17 from printed-paper alpha-test traffic light, ~30cm,
-# 18 hsv_picker samples (3 per state x {RED,YELLOW,GREEN} x {ON,OFF}).
-# Discrimination chosen so all OFF states + YELLOW (both ON/OFF) fall outside:
-#   RED  : S>=150, V>=100   (RED_ON  S 211-255 V 173-198 ; RED_OFF S<=143, V<=75)
-#   GREEN: S>=135            (GREEN_ON S 140-171 ; GREEN_OFF S<=128)
+# HSV color thresholds + circularity + WIN_MARGIN + SMOOTH_* are imported
+# above from perception/traffic_light.py — calibration history lives there.
+# Tuning notes (2026-05-17, printed-paper alpha test, 18 hsv_picker samples):
+#   RED   : S>=150, V>=100  (RED_ON S 211-255 V 173-198 ; RED_OFF S<=143, V<=75)
+#   GREEN : S>=135           (GREEN_ON S 140-171 ; GREEN_OFF S<=128)
 #   YELLOW_OFF (H 35-37) safely below green_lower H=40.
-# Real test uses MORE saturated colors -> these thresholds are conservative-safe.
-red_lower_1 = np.array([0, 150, 100])
-red_upper_1 = np.array([12, 255, 255])   # widened from 10 toward canonical 0-15
-red_lower_2 = np.array([165, 150, 100])  # widened from 170 toward canonical 160-180
-red_upper_2 = np.array([179, 255, 255])
+# Real test will use MORE saturated colors -> thresholds are conservative-safe.
 
-green_lower = np.array([35, 135, 100])   # widened from 40 toward canonical 35-90
-green_upper = np.array([90, 255, 255])   # widened from 85 toward canonical 35-90
-
-# Winner must beat the other color by this factor to commit a decision.
-WIN_MARGIN = 1.5
-
-# Shape thresholds ----------------------------------------------------
+# Shape thresholds — resolution-scaled (debug CLI runs at arbitrary size,
+# production detector uses fixed picamera2 resolution and the fixed values
+# baked into perception/traffic_light.py).
 area_scale = (args.width * args.height) / (640 * 480)
 length_scale = min(args.width / 640, args.height / 480)
 min_area = max(50, int(200 * area_scale))
-min_circularity = 0.55
 min_radius = max(3, int(6 * length_scale))
 max_radius = max(30, int(140 * length_scale))
 
-# Temporal smoothing --------------------------------------------------
-SMOOTH_WINDOW = 5
-SMOOTH_MIN_VOTES = 3
+# Temporal smoothing buffer (window size from perception import above).
 history = deque(maxlen=SMOOTH_WINDOW)
 
 # Morphology kernel ---------------------------------------------------
