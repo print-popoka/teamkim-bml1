@@ -100,3 +100,23 @@ def test_exactly_near_threshold_counts_as_detected() -> None:
         "front", {"front": NEAR_CM, "left45": 90.0, "right45": 95.0}
     )
     assert v.status == PASS
+
+
+# ---------- Regression: expected-near is never a swap (tie/near-tie) -----
+
+
+def test_expected_near_with_tie_is_not_wrong_sensor() -> None:
+    """If the expected sensor itself sees the object near, a TIE with the
+    other side must NOT be misread as a left<->right swap. It's AMBIGUOUS at
+    worst, never WRONG_SENSOR."""
+    v = classify_direction("right", {"front": 80.0, "left45": 20.0, "right45": 20.0})
+    assert v.status != WRONG_SENSOR
+    assert v.status == AMBIGUOUS
+
+
+def test_expected_near_even_if_neighbour_marginally_closer_is_not_swap() -> None:
+    """Expected (right45) sees 14cm; left45 happens to read 12cm. The right
+    sensor DID see the object near, so this is not a swap — AMBIGUOUS."""
+    v = classify_direction("right", {"front": 80.0, "left45": 12.0, "right45": 14.0})
+    assert v.status != WRONG_SENSOR
+    assert v.status == AMBIGUOUS

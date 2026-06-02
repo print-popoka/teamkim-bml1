@@ -44,7 +44,7 @@ try:
 except Exception:  # noqa: BLE001
     GPIO = None  # type: ignore[assignment]
 
-from hal.ultrasonics import Ultrasonics
+from hal.ultrasonics import DEFAULT_PINS, Ultrasonics
 from logs.trace import tracer
 
 # --------------------------------------------------------------------- #
@@ -60,10 +60,12 @@ SAMPLES = 6      # poll_all rounds per step (fills the hal median window)
 EXPECTED_SENSOR = {"front": "front", "left": "left45", "right": "right45"}
 DIRECTION_ORDER = ("front", "left", "right")
 
+# Pin numbers come from hal's LIVE pin map (DEFAULT_PINS) so the displayed
+# wiring can never drift from what the robot actually drives.
+_KO_NAME = {"front": "앞 FRONT", "left45": "왼쪽 LEFT45", "right45": "오른쪽 RIGHT45"}
 LABEL = {
-    "front": "앞 (FRONT, 23/24)",
-    "left45": "왼쪽 (LEFT45, 25/8)",
-    "right45": "오른쪽 (RIGHT45, 7/12)",
+    key: f"{_KO_NAME.get(key, key)} ({trig}/{echo})"
+    for key, (trig, echo) in DEFAULT_PINS.items()
 }
 PLACEMENT = {
     "front": "차 정면 바로 앞 10~15cm 에 평평한 판/손바닥을 대세요.",
@@ -103,8 +105,6 @@ def classify_direction(
     expected_val = readings.get(expected)
     valid = {k: v for k, v in readings.items() if v is not None}
     nearest = min(valid, key=lambda k: valid[k]) if valid else None
-    near_sensors = {k: v for k, v in valid.items() if v <= near_cm}
-
     # The expected sensor returned nothing at all -> dead / miswired.
     if expected_val is None:
         return DirectionVerdict(
@@ -113,42 +113,47 @@ def classify_direction(
             f"— docs/hardware_troubleshooting.md 참고.",
         )
 
-    # Nobody sees a near object -> not placed / too far.
-    if not near_sensors:
+    # Did the EXPECTED sensor itself see a near object? If so, this direction
+    # is wired/aimed correctly — it is NEVER a swap, even if a neighbour ties
+    # or reads marginally closer. Warn only if a neighbour is also close
+    # (object too central / cross-talk); otherwise a clean PASS.
+    if expected_val <= near_cm:
+        intruders = {
+            k: v for k, v in readings.items()
+            if k != expected and v is not None and v < far_cm
+        }
+        if intruders:
+            names = ", ".join(f"{LABEL[k]}={v:.0f}cm" for k, v in intruders.items())
+            return DirectionVerdict(
+                direction, expected, readings, nearest, AMBIGUOUS,
+                f"{LABEL[expected]} 가 {expected_val:.0f}cm 로 잡혔지만 다른 센서도 "
+                f"가까움({names}). 장애물을 더 한쪽으로 치우쳐 다시 시도.",
+            )
         return DirectionVerdict(
-            direction, expected, readings, nearest, NO_DETECTION,
-            f"가깝게(≤{near_cm:.0f}cm) 잡힌 센서가 없음 (기대 {LABEL[expected]}="
-            f"{expected_val:.0f}cm). 장애물을 해당 센서 앞 10~15cm 에 두고 다시 시도.",
+            direction, expected, readings, nearest, PASS,
+            f"{LABEL[expected]} 가 {expected_val:.0f}cm 로 단독 감지. 방향 정확.",
         )
 
-    # Something IS near, but the WRONG sensor saw it closest -> direction
-    # error. If it is the opposite side, it's almost certainly a swap.
-    if nearest != expected:
-        swap = {"left45": "right45", "right45": "left45"}.get(expected) == nearest
+    # Expected sensor did NOT see a near object. If ANOTHER sensor did, the
+    # wrong sensor is facing this direction -> swap / mis-aim.
+    near_others = {
+        k: v for k, v in valid.items() if k != expected and v <= near_cm
+    }
+    if near_others:
+        culprit = min(near_others, key=lambda k: near_others[k])
+        swap = {"left45": "right45", "right45": "left45"}.get(expected) == culprit
         hint = " (왼쪽↔오른쪽 배선/장착이 바뀐 것으로 보임)" if swap else ""
         return DirectionVerdict(
-            direction, expected, readings, nearest, WRONG_SENSOR,
-            f"{direction.upper()} 방향에 댔는데 {LABEL[nearest]} 가 "
-            f"{valid[nearest]:.0f}cm 로 가장 가깝게 잡힘{hint}. 기대={LABEL[expected]}.",
+            direction, expected, readings, culprit, WRONG_SENSOR,
+            f"{direction.upper()} 방향에 댔는데 {LABEL[culprit]} 가 "
+            f"{near_others[culprit]:.0f}cm 로 잡힘{hint}. 기대={LABEL[expected]}.",
         )
 
-    # Expected sensor is the nearest. Make sure a neighbour isn't also close
-    # (object too central / cross-talk) before calling it a clean PASS.
-    intruders = {
-        k: v for k, v in readings.items()
-        if k != expected and v is not None and v < far_cm
-    }
-    if intruders:
-        names = ", ".join(f"{LABEL[k]}={v:.0f}cm" for k, v in intruders.items())
-        return DirectionVerdict(
-            direction, expected, readings, nearest, AMBIGUOUS,
-            f"{LABEL[expected]} 가 가장 가깝지만({expected_val:.0f}cm) 다른 센서도 "
-            f"가까움({names}). 장애물을 더 한쪽으로 치우쳐 다시 시도.",
-        )
-
+    # Nobody saw a near object -> not placed / too far.
     return DirectionVerdict(
-        direction, expected, readings, nearest, PASS,
-        f"{LABEL[expected]} 가 {expected_val:.0f}cm 로 단독 감지. 방향 정확.",
+        direction, expected, readings, nearest, NO_DETECTION,
+        f"가깝게(≤{near_cm:.0f}cm) 잡힌 센서가 없음 (기대 {LABEL[expected]}="
+        f"{expected_val:.0f}cm). 장애물을 해당 센서 앞 10~15cm 에 두고 다시 시도.",
     )
 
 
@@ -303,7 +308,6 @@ def run_demo() -> int:
         },
     }
 
-    overall = 0
     for title, steps in scenarios.items():
         print("-" * 64)
         print(f" 시나리오: {title}")
@@ -312,10 +316,10 @@ def run_demo() -> int:
         for v in results:
             print_verdict(v)
         print_summary(results)
-        if not all(v.status == PASS for v in results):
-            overall = 1
         print()
-    return overall
+    # --demo is an illustrative preview (it intentionally shows failing
+    # scenarios), so it always exits 0 — it is not a pass/fail gate.
+    return 0
 
 
 def parse_args() -> argparse.Namespace:
