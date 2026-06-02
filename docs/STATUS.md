@@ -1,6 +1,7 @@
 # Project status (snapshot)
 
-_Updated 2026-05-17 — after PI smooth-drive feedback + first hardware_check_
+_Updated 2026-06-02 — continuous front-clearance speed profile + single CRUISE
+knob + speed-aware corner anticipation (sample-maze "simple, go fast" direction)_
 
 ## Where we are
 
@@ -15,6 +16,9 @@ test.
 ```
 .
 ├── hardware_check.py         # Pi-side: verify all wiring before any session
+├── ultrasonic_direction_check.py  # Pi-side: 3-sensor integration + L/R/front
+│                             #   DIRECTION check (catches a left<->right swap);
+│                             #   --demo previews it off-Pi
 ├── main.py                   # entry: full run loop (--dry-run works off Pi)
 │
 ├── camera/                   # LEGACY scripts + calibration tools (kept)
@@ -54,11 +58,14 @@ test.
 ├── docs/
 │   ├── test_day_checklist.md          #   take this to the sample maze
 │   ├── hardware_troubleshooting.md    #   multimeter recipe for LEFT45/RIGHT45
+│   ├── ultrasonic_direction_check.md  #   hardware-team guide for the L/R/front check
 │   └── STATUS.md                      #   this file
 │
 └── tests/                    # NEW — pytest behavioral tests
-    ├── test_wall_follow.py   #   centering / clearance / corner / pivot (10)
-    └── test_state_machine.py #   INIT / FOLLOWING / RED / GREEN / pivot (9)
+    ├── test_wall_follow.py   #   centering / clearance / corner / pivot
+    │                         #   + speed profile / CRUISE knob / coupling (29)
+    └── test_state_machine.py #   INIT / FOLLOWING / RED / GREEN / pivot
+                              #   + full-chain speed/gating integration (11)
 ```
 
 (plus ``logs/replay.py`` — JSONL → state machine offline replay + latency report)
@@ -70,7 +77,8 @@ python logs/trace.py                              # demo trace write
 python logs/trace.py show logs/runs/<file>.jsonl  # pretty-print
 python main.py --dry-run --duration 5             # smoke test the loop
 python logs/replay.py logs/runs/<file>.jsonl --latency  # replay + latency
-pytest tests/ -q                                  # 19 behavioral tests
+pytest tests/ -q                                  # 61 behavioral tests
+python ultrasonic_direction_check.py --demo       # preview the 3-sensor direction check off-Pi
 ```
 
 `main.py --dry-run` exercises the entire perception/control/algorithm
@@ -97,7 +105,8 @@ event, and exit cleanly.
 | Drift trim | `hal/motors.py` | ⏳ placeholder (1.0/1.0) |
 | Turn rate | `hal/motors.py` | ⏳ placeholder (150 deg/s) |
 | Wall-follow PD gains | `control/wall_follow.py` | ⏳ placeholder, retune on real maze |
-| Corner-anticipate distance | `control/wall_follow.py` | ⏳ placeholder (25 cm) |
+| **CRUISE speed knob** | `control/wall_follow.py` | ⏳ single hardware-day dial (45.0); whole speed table derives from it |
+| Corner-anticipate distance | `control/wall_follow.py` | ⏳ 25 cm at reference cruise; now SPEED-AWARE (grows with CRUISE via ANTICIPATE_GAIN) |
 | SAFE_MARGIN_CM | `control/wall_follow.py` | ⏳ placeholder (4 cm) |
 
 ## Hardware status (per the `hardware_check.py` run that motivated this turn)
