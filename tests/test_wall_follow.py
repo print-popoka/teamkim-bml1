@@ -12,17 +12,27 @@ Curvature sign convention:
 from __future__ import annotations
 
 from control.wall_follow import (
+    APPROACH_SPEED,
     ARC_MIN_CM,
     BASE_SPEED,
     CORNER_ANTICIPATE_CM,
+    CORNER_APPROACH_FRACTION,
+    CORNER_FLOOR_CM,
+    CRUISE,
+    CRUISE_REF,
     DEADBAND_CM,
     JUNCTION_CM,
     JUNCTION_COMMIT_CURVATURE,
     JUNCTION_COMMIT_TICKS,
     MAX_DERROR_CM,
+    NARROWING_CM,
     SAFE_MARGIN_CM,
+    SLOW_FRACTION,
+    SLOW_SPEED,
     SPEED_SCALE_FLOOR,
     WallFollowController,
+    corner_anticipate_cm,
+    front_speed,
 )
 
 
@@ -213,3 +223,113 @@ def test_none_inputs_default_to_far() -> None:
     cmd = _step(front=None, left=None, right=None)
     assert cmd.action == "arc"
     assert abs(cmd.curvature) < 0.1
+
+
+# ---------- Speed table derives from one CRUISE knob (SPEED-2) ----------
+
+
+def test_speed_table_derives_from_cruise_at_reference() -> None:
+    """The whole table is fractions * CRUISE; at the reference cruise it
+    reproduces the previously tuned values (45 / ~35 / ~30)."""
+    assert BASE_SPEED == CRUISE
+    assert APPROACH_SPEED == CRUISE * CORNER_APPROACH_FRACTION
+    assert SLOW_SPEED == CRUISE * SLOW_FRACTION
+    # Still close to the old hand-tuned magnitudes.
+    assert abs(APPROACH_SPEED - 35.0) < 1.0
+    assert abs(SLOW_SPEED - 30.0) < 1.0
+
+
+def test_speed_names_remain_importable() -> None:
+    """SLOW_SPEED / APPROACH_SPEED are referenced at runtime by the
+    clearance guards + narrowing cap; a missing name is a silent NameError
+    on the Pi that pytest would otherwise miss. Pin them positive."""
+    assert SLOW_SPEED > 0
+    assert APPROACH_SPEED > 0
+    assert CRUISE > 0
+
+
+# ---------- Continuous front-clearance speed profile (SPEED-1) ----------
+
+
+def test_front_speed_full_cruise_on_open_front() -> None:
+    assert front_speed(200.0, CRUISE) == CRUISE
+
+
+def test_front_speed_floor_is_positive() -> None:
+    """Smooth-drive defense: never a zero-speed stall mid-corner."""
+    assert front_speed(0.0, CRUISE) > 0.0
+
+
+def test_front_speed_emits_intermediate_value_on_ramp() -> None:
+    """THE discriminator vs the old 3-step block: a strictly-between value
+    must exist on the ramp. The step function never produced one."""
+    onset = corner_anticipate_cm(CRUISE)
+    mid = (CORNER_FLOOR_CM + onset) / 2.0
+    floor = CRUISE * CORNER_APPROACH_FRACTION
+    s = front_speed(mid, CRUISE)
+    assert floor < s < CRUISE
+
+
+def test_front_speed_monotonic_nondecreasing() -> None:
+    """Speed never drops as the corridor opens up. Guards an inverted
+    profile. (Supporting check — continuity above is the real proof.)"""
+    prev = -1.0
+    f = 0.0
+    while f <= 200.0:
+        s = front_speed(f, CRUISE)
+        assert s >= prev - 1e-9
+        prev = s
+        f += 1.0
+
+
+def test_front_speed_endpoints_symbolic() -> None:
+    """Endpoints checked against the PASSED-IN cruise, not a literal, so
+    the contract holds at any hardware-day CRUISE."""
+    c = 70.0
+    assert front_speed(500.0, c) == c
+    assert front_speed(CORNER_FLOOR_CM - 1.0, c) == c * CORNER_APPROACH_FRACTION
+
+
+def test_step_open_straight_runs_at_cruise() -> None:
+    """Centered + far front -> full cruise speed through the controller."""
+    cmd = _step(front=200.0, left=15.0, right=15.0)
+    assert cmd.action == "arc"
+    assert cmd.linear_speed == BASE_SPEED
+
+
+def test_narrowing_caps_speed_through_step() -> None:
+    """Both sides tight (far front) -> speed capped at SLOW_SPEED. Pins the
+    re-added CLAUDE.md corridor-width slowdown so it cannot regress."""
+    cmd = _step(front=200.0, left=NARROWING_CM - 4, right=NARROWING_CM - 4)
+    assert cmd.action == "arc"
+    assert cmd.linear_speed <= SLOW_SPEED + 1e-9
+
+
+# ---------- Speed-aware corner anticipation coupling (SPEED-3) ----------
+
+
+def test_corner_anticipate_reference_value() -> None:
+    """At the reference cruise the onset is exactly the old fixed 25cm, so
+    existing corner-anticipation tests stay valid and runtime is unchanged."""
+    assert corner_anticipate_cm(CRUISE_REF) == 25.0
+    assert CORNER_ANTICIPATE_CM == 25.0
+
+
+def test_corner_anticipate_couples_to_cruise() -> None:
+    """Discriminating sign test on the pure function: a faster cruise begins
+    cornering at a strictly LARGER front distance. Passes for any positive
+    gain, so the gain magnitude itself stays unguessed."""
+    assert corner_anticipate_cm(2 * CRUISE_REF) > corner_anticipate_cm(CRUISE_REF)
+
+
+def test_ramp_onset_couples_to_cruise() -> None:
+    """The speed-ramp onset and the corner-bias onset are the SAME cruise-
+    coupled value: speed is full cruise at the onset and below it just
+    under, and the onset moves out at higher cruise. One shared invariant."""
+    onset_ref = corner_anticipate_cm(CRUISE_REF)
+    onset_2x = corner_anticipate_cm(2 * CRUISE_REF)
+    assert front_speed(onset_ref, CRUISE_REF) == CRUISE_REF
+    assert front_speed(onset_ref - 0.5, CRUISE_REF) < CRUISE_REF
+    assert front_speed(onset_2x, 2 * CRUISE_REF) == 2 * CRUISE_REF
+    assert front_speed(onset_2x - 0.5, 2 * CRUISE_REF) < 2 * CRUISE_REF
+    assert onset_2x > onset_ref

@@ -25,7 +25,12 @@ Design (per CLAUDE.md, PI feedback "smooth, never stop-and-turn"):
      (sub ARC_MIN_CM), raise ``need_pivot`` so the state machine can call
      ``Motors.pivot_*``. Dead-end U-turn path only.
 
-Tuning constants are PLACEHOLDERS; refine after sample-maze test.
+Speed table derives from one knob ``CRUISE`` (hardware-day tunable); the
+forward-speed profile (``front_speed``) and corner anticipation
+(``corner_anticipate_cm``) are pure, cruise-aware functions — magnitudes
+are tunable, the shapes are fixed. At the reference cruise the derived
+values reproduce the previously tuned table exactly (behaviour-preserving
+generalisation). Refine the magnitudes after the maze test.
 """
 
 from __future__ import annotations
@@ -36,17 +41,50 @@ from typing import Literal
 from logs.trace import tracer  # noqa: F401 — used by _maybe_log_junction + _trace
 
 SAFE_MARGIN_CM = 4.0
-CORNER_ANTICIPATE_CM = 25.0
 ARC_MIN_CM = 12.0
 NARROWING_CM = 14.0
 
-BASE_SPEED = 45.0
-SLOW_SPEED = 30.0
-APPROACH_SPEED = 35.0
+# --------------------------------------------------------------------- #
+# Speed table — derived from ONE hardware-day knob, CRUISE.
+# CRUISE is the straight-corridor speed/PWM you measure as the fastest
+# stable value on test day; everything else scales off it so there is a
+# single dial, not 3-4 that can drift out of sync. At the reference cruise
+# (45) the derived values reproduce the previously tuned table
+# (BASE 45 / APPROACH ~35 / SLOW ~30), so this is a behaviour-preserving
+# generalisation. CRUISE and the fractions are MAGNITUDE tunables; the
+# *derivation* (table = fractions * CRUISE) is the structural part.
+# CRUISE is a THROTTLE scalar only — distance/gain constants
+# (CORNER_ANTICIPATE_*, NARROWING_CM, KP_CORNER) are NOT routed through it.
+# --------------------------------------------------------------------- #
+CRUISE = 45.0                    # hardware-day knob (straight-corridor speed)
+CRUISE_REF = 45.0                # cruise the table/anticipation were tuned at
+CORNER_APPROACH_FRACTION = 0.78  # corner-approach floor speed = CRUISE * this (~35)
+SLOW_FRACTION = 2.0 / 3.0        # narrowing/clearance speed   = CRUISE * this (~30)
+
+BASE_SPEED = CRUISE                                  # open-straight cruise (importable)
+APPROACH_SPEED = CRUISE * CORNER_APPROACH_FRACTION   # corner-approach floor speed
+SLOW_SPEED = CRUISE * SLOW_FRACTION                  # narrowing + clearance guards
 
 KP_CENTER = 0.06
 KP_CORNER = 0.03
 KD_CENTER = 0.04
+
+# Corner anticipation is SPEED-AWARE: a faster car must begin its arc
+# earlier. The lead distance is CORNER_ANTICIPATE_REF_CM at CRUISE_REF and
+# grows by ANTICIPATE_GAIN cm per unit of CRUISE above CRUISE_REF. This is
+# an additive-from-reference coupling (NOT a multiplicative throttle scale),
+# so at the reference cruise the gain term vanishes => the onset is exactly
+# 25 cm and runtime behaviour is identical to the old fixed value. The
+# coupling only engages once CRUISE is raised on hardware day.
+CORNER_ANTICIPATE_REF_CM = 25.0
+MIN_ANTICIPATE_CM = 20.0         # never anticipate closer than this
+ANTICIPATE_GAIN = 0.5            # extra cm of corner lead per unit cruise > ref
+
+# front_speed ramp: at/below CORNER_FLOOR_CM the car sits on the corner
+# floor speed; it ramps linearly up to full CRUISE by the anticipation
+# onset. Must stay strictly below that onset or the ramp degenerates to a
+# step (the continuity test catches this).
+CORNER_FLOOR_CM = 12.0
 
 # Errors below this (cm) get no centering correction.
 # Addresses prof's tip #2: teams over-correct and waste forward progress.
@@ -73,6 +111,49 @@ JUNCTION_COMMIT_SPEED = 35.0        # slower during the commit for safety
 # SPEED_SCALE_FLOOR so we never freeze.
 SPEED_SCALE_ERROR_REF = 20.0  # error in cm at which speed drops to floor
 SPEED_SCALE_FLOOR = 0.55      # never below 55% of requested speed
+
+
+def corner_anticipate_cm(cruise: float = CRUISE) -> float:
+    """Front distance at which cornering begins, as a function of cruise.
+
+    Pure function (no module state) so the speed/cruise coupling is unit-
+    testable without an import-time reload. Reads only ``cruise``; never
+    touches the (currently dead) side sensors. At ``CRUISE_REF`` this is
+    exactly ``CORNER_ANTICIPATE_REF_CM`` (== 25), so default behaviour is
+    unchanged; raising cruise pushes the onset earlier.
+    """
+    lead = CORNER_ANTICIPATE_REF_CM + ANTICIPATE_GAIN * (cruise - CRUISE_REF)
+    return max(MIN_ANTICIPATE_CM, lead)
+
+
+def front_speed(front_cm: float, cruise: float = CRUISE) -> float:
+    """Continuous forward-clearance speed profile (FRONT sensor only).
+
+    Replaces the old 3-level BASE/APPROACH/SLOW step. Shape:
+      - flat ``cruise`` plateau for front >= the anticipation onset
+        (open straight => full speed),
+      - a linear ramp down to the corner floor across
+        [CORNER_FLOOR_CM, onset] (bleed speed as the corner nears),
+      - a flat corner-floor plateau (> 0) for front <= CORNER_FLOOR_CM
+        (never zero — smooth-drive, no mid-corner stall).
+    The onset is ``corner_anticipate_cm(cruise)`` so the speed ramp and the
+    corner-bias trigger share ONE cruise-coupled invariant: faster cruise
+    => leaves the plateau AND starts curving earlier, together.
+    Reads only ``front_cm``; independent of the dead LEFT45/RIGHT45.
+    """
+    onset = corner_anticipate_cm(cruise)
+    floor = cruise * CORNER_APPROACH_FRACTION
+    if front_cm >= onset:
+        return cruise
+    if front_cm <= CORNER_FLOOR_CM:
+        return floor
+    t = (front_cm - CORNER_FLOOR_CM) / (onset - CORNER_FLOOR_CM)
+    return floor + t * (cruise - floor)
+
+
+# Module alias used by the controller at runtime (cruise == CRUISE here).
+# Equals CORNER_ANTICIPATE_REF_CM (25) at the reference cruise.
+CORNER_ANTICIPATE_CM = corner_anticipate_cm(CRUISE)
 
 
 Action = Literal["arc", "pivot_right", "pivot_left", "stop"]
@@ -194,13 +275,14 @@ class WallFollowController:
 
         curvature = max(-1.0, min(1.0, centering + corner_bias))
 
-        # Base speed selection: narrowing > corner approach > normal.
+        # Base speed: continuous forward-clearance ramp (FRONT sensor only),
+        # full cruise on open straights, bleeding toward the corner floor as
+        # the front wall nears. Replaces the old BASE/APPROACH/SLOW step.
+        speed = front_speed(f)
+        # Narrowing slowdown (both sides tight) — CLAUDE.md corridor-width
+        # defense — applied as a cap on top of the ramp.
         if l < NARROWING_CM and r < NARROWING_CM:
-            speed = SLOW_SPEED
-        elif f < CORNER_ANTICIPATE_CM:
-            speed = APPROACH_SPEED
-        else:
-            speed = BASE_SPEED
+            speed = min(speed, SLOW_SPEED)
 
         # Error-magnitude speed scaling: big offset -> slow down so we
         # don't overshoot while correcting. Linear ramp to a floor.
