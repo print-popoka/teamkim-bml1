@@ -198,6 +198,15 @@ def print_guide() -> None:
     print()
 
 
+def print_step_guide(direction: str) -> None:
+    """Per-direction operator guidance (the ``[FRONT]`` header + where to
+    place the object). Shared by the live run and ``--demo`` so the two
+    show the SAME guide and can't drift."""
+    sensor = EXPECTED_SENSOR[direction]
+    print(f"[{direction.upper()}] {LABEL[sensor]} 점검")
+    print(f"    {PLACEMENT[direction]}  (다른 방향은 비워두세요) → Enter")
+
+
 def print_verdict(v: DirectionVerdict) -> None:
     mark = {PASS: "✅ PASS", AMBIGUOUS: "⚠️  WARN"}.get(v.status, "❌ FAIL")
     print(f"  [{mark}] {v.direction.upper()}  ({_fmt(v.readings)})")
@@ -263,9 +272,7 @@ def run_interactive() -> int:
             print()
 
             for direction in DIRECTION_ORDER:
-                sensor = EXPECTED_SENSOR[direction]
-                print(f"[{direction.upper()}] {LABEL[sensor]} 점검")
-                print(f"    {PLACEMENT[direction]}  (다른 방향은 비워두세요) → Enter")
+                print_step_guide(direction)
                 input()
                 readings = poll_stable(us)
                 verdict = classify_direction(direction, readings)
@@ -310,11 +317,16 @@ def run_demo() -> int:
 
     for title, steps in scenarios.items():
         print("-" * 64)
-        print(f" 시나리오: {title}")
+        print(f" 시나리오: {title}  (예시 측정값으로 자동 진행)")
         print("-" * 64)
-        results = [classify_direction(d, steps[d]) for d in DIRECTION_ORDER]
-        for v in results:
-            print_verdict(v)
+        results: list[DirectionVerdict] = []
+        for direction in DIRECTION_ORDER:
+            # Same step-by-step guide the operator sees on a real run.
+            print_step_guide(direction)
+            verdict = classify_direction(direction, steps[direction])
+            results.append(verdict)
+            print_verdict(verdict)
+            print()
         print_summary(results)
         print()
     # --demo is an illustrative preview (it intentionally shows failing
