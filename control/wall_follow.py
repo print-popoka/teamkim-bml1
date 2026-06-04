@@ -44,6 +44,17 @@ SAFE_MARGIN_CM = 4.0
 ARC_MIN_CM = 12.0
 NARROWING_CM = 14.0
 
+# A side sensor returning None for this many CONSECUTIVE ticks is treated as
+# DEAD (not a real opening): the controller then mirrors it to the live side
+# so the centering PD and junction-commit never steer toward the blind wall.
+# A brief None (< this) is still treated as "open" (default 400) so legitimate
+# junction right-turns still fire. The hal median already absorbs single-tick
+# dropouts, so this only engages on SUSTAINED dropout. Pi-tunable: lower =
+# faster dead-sensor protection but risks cutting a slow junction turn short
+# (~2.5s at 10Hz). Assumes the LEFT45/RIGHT45 wiring is healthy; this is
+# mid-run-failure defense, not a substitute for the wiring fix.
+DEAD_SENSOR_TICKS = 25
+
 # --------------------------------------------------------------------- #
 # Speed table — derived from ONE hardware-day knob, CRUISE.
 # CRUISE is the straight-corridor speed/PWM you measure as the fastest
@@ -180,6 +191,9 @@ class WallFollowController:
         self._left_open_active: bool | None = None
         self._commit_ticks_remaining: int = 0
         self._commit_curvature: float = 0.0
+        # Consecutive-None counters per side, for dead-sensor detection.
+        self._left_none_streak: int = 0
+        self._right_none_streak: int = 0
 
     def step(
         self,
@@ -187,9 +201,25 @@ class WallFollowController:
         left_cm: float | None,
         right_cm: float | None,
     ) -> WallFollowCommand:
+        # Track sustained side dropouts: a DEAD sensor (mirror it to the live
+        # side -> never steer toward the blind wall) vs a brief None at a real
+        # opening (keep treating as open so junction turns still fire).
+        self._left_none_streak = self._left_none_streak + 1 if left_cm is None else 0
+        self._right_none_streak = self._right_none_streak + 1 if right_cm is None else 0
+
         f = self._safe(front_cm, default=400.0)
         l = self._safe(left_cm, default=400.0)
         r = self._safe(right_cm, default=400.0)
+
+        # Dead-side mirroring: only after DEAD_SENSOR_TICKS consecutive None,
+        # and only when the OTHER side is live, so a real opening (brief None)
+        # is untouched. Both dead -> both stay 400 (-> error 0 -> straight).
+        left_dead = self._left_none_streak >= DEAD_SENSOR_TICKS
+        right_dead = self._right_none_streak >= DEAD_SENSOR_TICKS
+        if left_dead and not right_dead:
+            l = r
+        elif right_dead and not left_dead:
+            r = l
 
         # 5. Pivot fallback ---------------------------------------------
         if f < ARC_MIN_CM and l < ARC_MIN_CM and r < ARC_MIN_CM:

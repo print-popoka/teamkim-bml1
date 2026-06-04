@@ -167,6 +167,8 @@ def _execute(motors, cmd) -> None:
         motors.stop()
     elif cmd.action == "forward":
         motors.forward(cmd.linear_speed)
+    elif cmd.action == "backward":
+        motors.backward(cmd.linear_speed)
     elif cmd.action == "arc":
         motors.arc(cmd.linear_speed, cmd.curvature)
     elif cmd.action == "pivot_right":

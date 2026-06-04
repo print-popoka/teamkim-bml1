@@ -1,7 +1,15 @@
 # Project status (snapshot)
 
-_Updated 2026-06-02 — continuous front-clearance speed profile + single CRUISE
-knob + speed-aware corner anticipation (sample-maze "simple, go fast" direction)_
+_Updated 2026-06-04 — real-driving stabilization pass (Mac-only verification).
+Three behavior fixes from a whole-repo analysis: SM-1 infinite-pivot bailout
+(RECOVERING reverse-escape), CTRL-1 dead-side-sensor defense (mirror a
+sustained-None side, never steer into the blind wall), PERC-1 RED-priority
+decision (extracted to cv2-free `perception/signal_logic.py`). 79 pytest pass,
+maze_sim still EXIT_REACHED. Magnitudes (DEAD_SENSOR_TICKS, PIVOT_MAX_TICKS,
+reverse-escape) are Pi-tunable/validate-later; the LEFT45/RIGHT45 wiring fix
+remains the gating real-driving blocker. Prior 2026-06-02: continuous
+front-clearance speed profile + single CRUISE knob + speed-aware corner
+anticipation._
 
 ## Where we are
 
@@ -77,7 +85,7 @@ python logs/trace.py                              # demo trace write
 python logs/trace.py show logs/runs/<file>.jsonl  # pretty-print
 python main.py --dry-run --duration 5             # smoke test the loop
 python logs/replay.py logs/runs/<file>.jsonl --latency  # replay + latency
-pytest tests/ -q                                  # 61 behavioral tests
+pytest tests/ -q                                  # 79 behavioral tests
 python ultrasonic_direction_check.py --demo       # preview the 3-sensor direction check off-Pi
 ```
 

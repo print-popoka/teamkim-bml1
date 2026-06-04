@@ -10,6 +10,8 @@ from algorithm.wall_follower_sm import (
     INIT_WALL_FOUND_CM,
     PIVOT_EXIT_FRONT_CM,
     PIVOT_EXIT_HOLD_TICKS,
+    PIVOT_MAX_TICKS,
+    PIVOT_RECOVER_TICKS,
     WallFollowerSM,
 )
 
@@ -114,6 +116,53 @@ def test_full_chain_open_straight_faster_than_corner_approach() -> None:
     assert open_cmd.action == "arc"
     assert corner_cmd.action == "arc"
     assert open_cmd.linear_speed > corner_cmd.linear_speed
+
+
+# ---------- Infinite-pivot bailout (SM-1) ------------------------------
+
+
+def test_stuck_pivot_caps_into_reverse_escape() -> None:
+    """A never-clearing dead-end must NOT pivot forever: after
+    PIVOT_MAX_TICKS it bails into RECOVERING with a reverse (backward)
+    escape, not endless in-place pivoting."""
+    sm = WallFollowerSM()
+    _walk_to_following(sm)
+    actions = [
+        sm.step(5.0, 5.0, 5.0, "UNKNOWN").action
+        for _ in range(PIVOT_MAX_TICKS + 1)
+    ]
+    assert "backward" in actions  # bailed out, did not pivot forever
+    assert sm.state == "RECOVERING"
+
+
+def test_reverse_escape_leaves_recovering_and_re_evaluates() -> None:
+    """After the reverse-escape window the SM leaves RECOVERING and resumes
+    evaluation (here it re-pivots since the inputs stay boxed) — it must not
+    stay stuck in RECOVERING. Verifies real forward progress, not a single
+    transition tick that re-enters the stuck state."""
+    sm = WallFollowerSM()
+    _walk_to_following(sm)
+    for _ in range(PIVOT_MAX_TICKS + 1):
+        sm.step(5.0, 5.0, 5.0, "UNKNOWN")
+    assert sm.state == "RECOVERING"
+    states = [
+        (sm.step(5.0, 5.0, 5.0, "UNKNOWN"), sm.state)[1]
+        for _ in range(PIVOT_RECOVER_TICKS + 2)
+    ]
+    assert "RECOVERING" not in states[-1:]  # left RECOVERING by the end
+    assert "PIVOTING" in states or "FOLLOWING" in states
+
+
+def test_red_preempts_reverse_escape() -> None:
+    """RED during RECOVERING still forces an immediate STOP (safety wins)."""
+    sm = WallFollowerSM()
+    _walk_to_following(sm)
+    for _ in range(PIVOT_MAX_TICKS + 1):
+        sm.step(5.0, 5.0, 5.0, "UNKNOWN")
+    assert sm.state == "RECOVERING"
+    cmd = sm.step(5.0, 5.0, 5.0, "STOP")
+    assert sm.state == "STOPPED_AT_RED"
+    assert cmd.action == "stop"
 
 
 def test_full_chain_red_stops_then_green_resumes_driving() -> None:

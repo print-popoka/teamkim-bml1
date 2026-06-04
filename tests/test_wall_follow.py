@@ -20,6 +20,7 @@ from control.wall_follow import (
     CORNER_FLOOR_CM,
     CRUISE,
     CRUISE_REF,
+    DEAD_SENSOR_TICKS,
     DEADBAND_CM,
     JUNCTION_CM,
     JUNCTION_COMMIT_CURVATURE,
@@ -320,6 +321,48 @@ def test_corner_anticipate_couples_to_cruise() -> None:
     cornering at a strictly LARGER front distance. Passes for any positive
     gain, so the gain magnitude itself stays unguessed."""
     assert corner_anticipate_cm(2 * CRUISE_REF) > corner_anticipate_cm(CRUISE_REF)
+
+
+# ---------- Dead-side sensor defense (CTRL-1) --------------------------
+
+
+def test_sustained_dead_left_does_not_steer_into_it() -> None:
+    """After DEAD_SENSOR_TICKS consecutive None on the left, the left is
+    mirrored to the live right -> the PD no longer steers into the blind
+    left wall (was a phantom-400 sharp LEFT before the fix)."""
+    ctrl = WallFollowController()
+    cmd = None
+    for _ in range(DEAD_SENSOR_TICKS + 1):
+        cmd = ctrl.step(80.0, None, 15.0)
+    assert cmd is not None and cmd.action == "arc"
+    assert cmd.curvature <= 0.1  # NOT steering left (+) into the dead side
+
+
+def test_sustained_dead_right_does_not_steer_into_it() -> None:
+    ctrl = WallFollowController()
+    cmd = None
+    for _ in range(DEAD_SENSOR_TICKS + 1):
+        cmd = ctrl.step(80.0, 15.0, None)
+    assert cmd is not None and cmd.action == "arc"
+    assert cmd.curvature >= -0.1  # NOT steering right (-) into the dead side
+
+
+def test_brief_none_side_still_opens_for_junction() -> None:
+    """A brief None (< DEAD_SENSOR_TICKS) must STILL be treated as an opening
+    so the legitimate junction right-turn fires — the dead-sensor defense
+    must not suppress a real opening."""
+    ctrl = WallFollowController()
+    ctrl.step(80.0, 15.0, 15.0)        # walls both sides, seed (no commit)
+    cmd = ctrl.step(80.0, 15.0, None)  # right opens -> junction commit right
+    assert cmd.curvature < 0           # sharp right toward the opening, preserved
+
+
+def test_alive_sides_unchanged_by_dead_sensor_logic() -> None:
+    """Both sides finite -> streaks stay 0 -> no mirroring -> identical to
+    the pre-CTRL-1 behavior (regression guard)."""
+    cmd = _step(front=80.0, left=10.0, right=20.0)
+    assert cmd.action == "arc"
+    assert cmd.curvature < 0  # more room on right -> curve right, as before
 
 
 def test_ramp_onset_couples_to_cruise() -> None:
