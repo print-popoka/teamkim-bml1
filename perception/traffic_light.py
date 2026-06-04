@@ -19,14 +19,16 @@ from __future__ import annotations
 
 from collections import Counter, deque
 from dataclasses import dataclass
-from typing import Literal
 
 import cv2
 import numpy as np
 
 from logs.trace import tracer
 
-Signal = Literal["STOP", "GO", "UNKNOWN"]
+# Decision rule + Signal type live in the cv2-free signal_logic module so they
+# are unit-testable off the Pi. MIN_AREA / WIN_MARGIN are re-exported here
+# because the debug CLI camera/hsv_circle.py imports them from this module.
+from perception.signal_logic import MIN_AREA, WIN_MARGIN, Signal, decide_signal
 
 
 # HSV thresholds — single source of truth. The debug CLI
@@ -39,12 +41,9 @@ RED_UPPER_2 = np.array([179, 255, 255])
 GREEN_LOWER = np.array([35, 135, 100])
 GREEN_UPPER = np.array([90, 255, 255])
 
-MIN_AREA = 200
 MIN_CIRCULARITY = 0.55
 MIN_RADIUS = 6
 MAX_RADIUS = 140
-
-WIN_MARGIN = 1.5
 
 SMOOTH_WINDOW = 5
 SMOOTH_MIN_VOTES = 3
@@ -93,7 +92,7 @@ class TrafficLightDetector:
         red_area = _circular_area(red_mask)
         green_area = _circular_area(green_mask)
 
-        raw = _decide(red_area, green_area)
+        raw = decide_signal(red_area, green_area)
         smoothed = self._smooth(raw)
 
         tracer.camera(
@@ -144,11 +143,3 @@ def _circular_area(mask: np.ndarray) -> int:
         if circularity >= MIN_CIRCULARITY and MIN_RADIUS <= radius <= MAX_RADIUS:
             total += int(area)
     return total
-
-
-def _decide(red_area: int, green_area: int) -> Signal:
-    if red_area <= MIN_AREA and green_area <= MIN_AREA:
-        return "UNKNOWN"
-    if red_area > green_area:
-        return "STOP" if red_area >= green_area * WIN_MARGIN else "UNKNOWN"
-    return "GO" if green_area >= red_area * WIN_MARGIN else "UNKNOWN"

@@ -67,7 +67,9 @@ time.sleep(1)
 # Tuning notes (2026-05-17, printed-paper alpha test, 18 hsv_picker samples):
 #   RED   : S>=150, V>=100  (RED_ON S 211-255 V 173-198 ; RED_OFF S<=143, V<=75)
 #   GREEN : S>=135           (GREEN_ON S 140-171 ; GREEN_OFF S<=128)
-#   YELLOW_OFF (H 35-37) safely below green_lower H=40.
+#   GREEN hue floor = 35 (single-sourced from perception/traffic_light.py:39).
+#   Yellow H 35-37 overlaps the low green band, NOT below it — but it is
+#   irrelevant: no yellow signal exists and GREEN == UNKNOWN == keep-going.
 # Real test will use MORE saturated colors -> thresholds are conservative-safe.
 
 # Shape thresholds — resolution-scaled (debug CLI runs at arbitrary size,
