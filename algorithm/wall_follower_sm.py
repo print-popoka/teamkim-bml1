@@ -159,14 +159,16 @@ class WallFollowerSM:
         # Wall-follow controller.
         wf_cmd = self._controller.step(front_cm, left_cm, right_cm)
 
-        if wf_cmd.action.startswith("pivot"):
-            if self._state != "PIVOTING":
-                self._transition("PIVOTING", reason=wf_cmd.reason)
-                self._pivot_ticks = 0
+        # Trigger pivot state if controller demands it
+        if wf_cmd.action.startswith("pivot") and self._state != "PIVOTING":
+            self._transition("PIVOTING", reason=wf_cmd.reason)
+            self._pivot_ticks = 0
             self._pivot_clear_ticks = 0
+
+        if self._state == "PIVOTING":
             self._pivot_ticks += 1
-            # Infinite-pivot bailout: a never-clearing dead-end can't pivot
-            # forever — bail into a reverse-escape instead of spinning in place.
+            
+            # Stuck bailout check: if we are spinning for too long without clearing, force reverse escape
             if self._pivot_ticks >= PIVOT_MAX_TICKS:
                 self._transition(
                     "RECOVERING",
@@ -178,20 +180,20 @@ class WallFollowerSM:
                     linear_speed=PIVOT_RECOVER_SPEED,
                     reason="pivot stuck -> reverse escape",
                 )
-            return _wf_to_high(wf_cmd)
 
-        if self._state == "PIVOTING":
+            # Check if front has cleared to exit pivot state
             if (front_cm is None) or (front_cm > PIVOT_EXIT_FRONT_CM):
                 self._pivot_clear_ticks += 1
             else:
                 self._pivot_clear_ticks = 0
+
             if self._pivot_clear_ticks >= PIVOT_EXIT_HOLD_TICKS:
                 self._transition("FOLLOWING", reason="pivot exit: front cleared")
             else:
                 return HighLevelCommand(
                     action="pivot_right",
                     linear_speed=30.0,
-                    reason=f"continuing pivot (clear ticks {self._pivot_clear_ticks})",
+                    reason=f"continuing pivot (ticks {self._pivot_ticks}, clear {self._pivot_clear_ticks})",
                 )
 
         return _wf_to_high(wf_cmd)
