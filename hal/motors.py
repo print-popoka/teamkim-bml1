@@ -36,9 +36,9 @@ from logs.trace import tracer
 # Pin map — must match motor/motor.py, motor/motor_calibration.py,
 #           hardware_check.py.
 # ---------------------------------------------------------------------- #
-LEFT_IN1, LEFT_IN2 = 17, 27
-RIGHT_IN3, RIGHT_IN4 = 22, 5
-LEFT_ENA, RIGHT_ENB = 18, 19
+LEFT_IN1, LEFT_IN2 = 22, 5
+RIGHT_IN3, RIGHT_IN4 = 17, 27
+LEFT_ENA, RIGHT_ENB = 19, 18
 
 PWM_FREQ = 1000
 

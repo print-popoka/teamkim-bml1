@@ -31,8 +31,8 @@ PWM_FREQ = 1000
 SOUND_SPEED_CM_PER_SEC = 34300
 
 MOTOR_PINS = {
-    "left": {"in1": 17, "in2": 27, "enable": 18},
-    "right": {"in1": 22, "in2": 5, "enable": 19},
+    "left": {"in1": 22, "in2": 5, "enable": 19},
+    "right": {"in1": 17, "in2": 27, "enable": 18},
 }
 
 

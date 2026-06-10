@@ -40,9 +40,9 @@ except ImportError:
 # ---------------------------------------------------------------------- #
 # Pin map  --  must match motor/motor.py exactly.
 # ---------------------------------------------------------------------- #
-IN1, IN2 = 17, 27   # left motor (A) direction
-IN3, IN4 = 22, 5    # right motor (B) direction
-ENA, ENB = 18, 19   # PWM enables (A=left, B=right)
+IN1, IN2 = 22, 5    # left motor (A) direction
+IN3, IN4 = 17, 27   # right motor (B) direction
+ENA, ENB = 19, 18   # PWM enables (A=left, B=right)
 PWM_FREQ = 1000
 
 
