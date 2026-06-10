@@ -68,7 +68,8 @@ RIGHT_POLARITY: int = -1
 SPEED_CM_PER_SEC_AT_50: float = 25.0   # placeholder
 # Measured 2026-05-24: PWM 50 for 0.30s rotates exactly 90° on the
 # current floor/battery. => 90 / 0.30 = 300 deg/s.
-TURN_DEG_PER_SEC_AT_50: float = 300.0
+# Calibrated 2026-06-10: 90 deg turned ~95 deg, updated 300 -> 317 deg/s (0.284s for 90 deg)
+TURN_DEG_PER_SEC_AT_50: float = 317.0
 
 
 @dataclass(frozen=True)
