@@ -37,7 +37,7 @@ LOOP_DT = 1.0 / LOOP_HZ
 # slowly (operator-controlled, not flickering). Polling every CAMERA_EVERY
 # ticks frees up CPU for the sensor + control loop, which DOES need to
 # run at full rate. The last-seen signal persists between camera frames.
-CAMERA_EVERY = 3   # 10Hz / 3 = ~3.3Hz camera
+CAMERA_EVERY = 5   # 10Hz / 5 = 2.0Hz camera
 
 # Log loop duration every TICK_LOG_EVERY ticks. Helps us spot when the
 # loop falls behind its 100ms budget on the real Pi.
@@ -75,7 +75,7 @@ def main() -> int:
             from perception.traffic_light import TrafficLightDetector
             from picamera2 import Picamera2  # type: ignore[import-not-found]
             picam = Picamera2()
-            picam.preview_configuration.main.size = (640, 480)
+            picam.preview_configuration.main.size = (320, 240)
             picam.preview_configuration.main.format = "RGB888"
             picam.configure("preview")
             picam.start()

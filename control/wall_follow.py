@@ -67,7 +67,7 @@ DEAD_SENSOR_TICKS = 8
 # CRUISE is a THROTTLE scalar only — distance/gain constants
 # (CORNER_ANTICIPATE_*, NARROWING_CM, KP_CORNER) are NOT routed through it.
 # --------------------------------------------------------------------- #
-CRUISE = 45.0                    # hardware-day knob (straight-corridor speed)
+CRUISE = 38.0                    # hardware-day knob (straight-corridor speed)
 CRUISE_REF = 45.0                # cruise the table/anticipation were tuned at
 CORNER_APPROACH_FRACTION = 0.78  # corner-approach floor speed = CRUISE * this (~35)
 SLOW_FRACTION = 2.0 / 3.0        # narrowing/clearance speed   = CRUISE * this (~30)
@@ -76,9 +76,9 @@ BASE_SPEED = CRUISE                                  # open-straight cruise (imp
 APPROACH_SPEED = CRUISE * CORNER_APPROACH_FRACTION   # corner-approach floor speed
 SLOW_SPEED = CRUISE * SLOW_FRACTION                  # narrowing + clearance guards
 
-KP_CENTER = 0.04
+KP_CENTER = 0.05
 KP_CORNER = 0.05
-KD_CENTER = 0.04
+KD_CENTER = 0.06
 
 # Corner anticipation is SPEED-AWARE: a faster car must begin its arc
 # earlier. The lead distance is CORNER_ANTICIPATE_REF_CM at CRUISE_REF and
@@ -87,7 +87,7 @@ KD_CENTER = 0.04
 # so at the reference cruise the gain term vanishes => the onset is exactly
 # 25 cm and runtime behaviour is identical to the old fixed value. The
 # coupling only engages once CRUISE is raised on hardware day.
-CORNER_ANTICIPATE_REF_CM = 25.0
+CORNER_ANTICIPATE_REF_CM = 40.0
 MIN_ANTICIPATE_CM = 20.0         # never anticipate closer than this
 ANTICIPATE_GAIN = 0.5            # extra cm of corner lead per unit cruise > ref
 

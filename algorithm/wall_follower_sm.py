@@ -52,8 +52,8 @@ PIVOT_EXIT_HOLD_TICKS = 5
 # sustained open readings on all three sensors are the best 3-HC-SR04-only
 # signal that the car has left the corridor. Keep this conservative: a
 # single open junction must not stop the run.
-EXIT_OPEN_CM = 80.0
-EXIT_HOLD_TICKS = 10
+EXIT_OPEN_CM = 110.0
+EXIT_HOLD_TICKS = 25
 
 # Infinite-pivot bailout: if PIVOTING runs this many ticks without the front
 # clearing, the dead-end isn't resolving (the car isn't rotating free), so we
@@ -86,6 +86,7 @@ class WallFollowerSM:
         self._recover_ticks = 0     # ticks elapsed in RECOVERING reverse-escape
         self._exit_open_ticks = 0   # consecutive all-open ticks after wall found
         self._has_found_wall = False
+        self._stuck_ticks = 0       # ticks with front wall extremely close (stuck detector)
         tracer.state(state=self._state, from_state=None, reason="boot")
 
     @property
@@ -116,6 +117,26 @@ class WallFollowerSM:
 
         if self._state == "STOPPED_AT_RED":
             return HighLevelCommand(action="stop", reason="STOPPED_AT_RED")
+
+        # Integrated Stuck Bailout Guard: if we are close to front wall and cannot move for 2.5s
+        if self._state not in ("STOPPED_AT_RED", "RECOVERING", "EXITED"):
+            if front_cm is not None and front_cm <= 12.0:
+                self._stuck_ticks += 1
+            else:
+                self._stuck_ticks = 0
+
+            if self._stuck_ticks >= 25:
+                self._transition(
+                    "RECOVERING",
+                    reason=f"integrated stuck {self._stuck_ticks} ticks -> reverse escape",
+                )
+                self._stuck_ticks = 0
+                self._recover_ticks = 0
+                return HighLevelCommand(
+                    action="backward",
+                    linear_speed=PIVOT_RECOVER_SPEED,
+                    reason="stuck -> reverse escape",
+                )
 
         # Reverse-escape after a stuck pivot. Slow reverse for a few ticks to
         # back out of a dead-end pocket, then re-evaluate from FOLLOWING (fall

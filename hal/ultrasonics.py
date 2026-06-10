@@ -85,7 +85,7 @@ SENSOR_MOUNTS: dict[str, SensorMount] = {
     ),
 }
 
-DEFAULT_WINDOW = 5
+DEFAULT_WINDOW = 3
 DEFAULT_WARMUP = 2
 
 # Bias correction — calibrated 2026-05-24, FRONT sensor on lab floor.
