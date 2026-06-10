@@ -12,6 +12,7 @@ ExecStart=/bin/bash /home/team2/teamkim-bml1/scripts/run_on_boot.sh
 # One drive per power-cycle. Don't auto-restart — if main.py exits we want
 # the car to STAY stopped, not start a fresh run on its own.
 Restart=no
+TimeoutStopSec=2
 
 # Send stdout/stderr to the journal so `journalctl -u teamkim-bml1 -b`
 # shows what happened this boot.
