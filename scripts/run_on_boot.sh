@@ -13,7 +13,7 @@
 set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/home/team2/teamkim-bml1}"
-BOOT_DELAY_S="${BOOT_DELAY_S:-20}"
+BOOT_DELAY_S="${BOOT_DELAY_S:-10}"
 RUN_DURATION_S="${RUN_DURATION_S:-300}"
 RUN_NAME="${RUN_NAME:-boot_run}"
 # Which entrypoint to run. main.py is the full wall-following maze loop.

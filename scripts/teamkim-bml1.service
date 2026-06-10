@@ -21,7 +21,7 @@ StandardError=journal
 # Tunables. Override per-instance with: sudo systemctl edit teamkim-bml1
 # (creates a drop-in at /etc/systemd/system/teamkim-bml1.service.d/override.conf)
 Environment=REPO_DIR=/home/team2/teamkim-bml1
-Environment=BOOT_DELAY_S=20
+Environment=BOOT_DELAY_S=10
 Environment=RUN_DURATION_S=300
 Environment=RUN_NAME=boot_run
 # Full wall-following maze loop. Override to integration_test.py only for
