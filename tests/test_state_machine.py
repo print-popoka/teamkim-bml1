@@ -7,6 +7,8 @@ stopped) and the boot/recovery transitions.
 from __future__ import annotations
 
 from algorithm.wall_follower_sm import (
+    EXIT_HOLD_TICKS,
+    EXIT_OPEN_CM,
     INIT_WALL_FOUND_CM,
     PIVOT_EXIT_FRONT_CM,
     PIVOT_EXIT_HOLD_TICKS,
@@ -36,6 +38,16 @@ def test_initializing_advances_when_left_wall_found() -> None:
     sm = WallFollowerSM()
     sm.step(None, INIT_WALL_FOUND_CM - 5, None, "UNKNOWN")
     assert sm.state == "FOLLOWING"
+
+
+def test_starting_in_open_space_does_not_count_as_exit() -> None:
+    """The exit detector is disabled until the car has found maze walls."""
+    sm = WallFollowerSM()
+    for _ in range(EXIT_HOLD_TICKS + 2):
+        cmd = sm.step(None, None, None, "UNKNOWN")
+    assert sm.state == "INITIALIZING"
+    assert cmd.action == "forward"
+    assert not sm.done
 
 
 # ---------- Traffic-light safety semantics -----------------------------
@@ -78,6 +90,35 @@ def test_green_in_following_is_noop_keeps_driving() -> None:
     cmd = sm.step(80.0, 15.0, 15.0, "GO")
     assert sm.state == "FOLLOWING"
     assert cmd.action == "arc"
+
+
+# ---------- Exit detection ---------------------------------------------
+
+
+def test_sustained_open_space_after_wall_found_exits() -> None:
+    """After entering the maze, all three sensors open for long enough means
+    the car has left the corridor and should stop instead of waiting for the
+    duration cap."""
+    sm = WallFollowerSM()
+    _walk_to_following(sm)
+    cmd = None
+    for _ in range(EXIT_HOLD_TICKS):
+        cmd = sm.step(EXIT_OPEN_CM + 20, None, None, "UNKNOWN")
+    assert sm.state == "EXITED"
+    assert sm.done
+    assert cmd is not None
+    assert cmd.action == "stop"
+
+
+def test_red_stop_suppresses_exit_detection_until_green() -> None:
+    sm = WallFollowerSM()
+    _walk_to_following(sm)
+    sm.step(EXIT_OPEN_CM + 20, None, None, "STOP")
+    for _ in range(EXIT_HOLD_TICKS + 2):
+        cmd = sm.step(EXIT_OPEN_CM + 20, None, None, "UNKNOWN")
+    assert sm.state == "STOPPED_AT_RED"
+    assert cmd.action == "stop"
+    assert not sm.done
 
 
 # ---------- Pivot / dead-end ------------------------------------------

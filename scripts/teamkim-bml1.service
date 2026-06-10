@@ -24,8 +24,9 @@ Environment=REPO_DIR=/home/team2/teamkim-bml1
 Environment=BOOT_DELAY_S=20
 Environment=RUN_DURATION_S=300
 Environment=RUN_NAME=boot_run
-# Swap to main.py once integration test is signed off.
-Environment=RUN_SCRIPT=integration_test.py
+# Full wall-following maze loop. Override to integration_test.py only for
+# a deliberate non-maze hardware scenario.
+Environment=RUN_SCRIPT=main.py
 
 [Install]
 WantedBy=multi-user.target

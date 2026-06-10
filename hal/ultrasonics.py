@@ -46,6 +46,45 @@ DEFAULT_PINS: dict[str, tuple[int, int]] = {
     "right45": (7, 12),
 }
 
+
+@dataclass(frozen=True)
+class SensorMount:
+    """Physical mounting contract for the production 3-sensor layout.
+
+    The code assumes the car's front is the top/nose of the chassis:
+    FRONT looks straight ahead, and LEFT45/RIGHT45 sit near the front
+    corners looking diagonally forward. If the hardware is mounted
+    differently, the wall-following geometry and direction check labels
+    stop matching reality.
+    """
+
+    name: str
+    position: str
+    yaw_deg: int
+    note: str
+
+
+SENSOR_MOUNTS: dict[str, SensorMount] = {
+    "front": SensorMount(
+        name="front",
+        position="front center nose",
+        yaw_deg=0,
+        note="faces straight ahead; catches front walls before arc turns",
+    ),
+    "left45": SensorMount(
+        name="left45",
+        position="front-left corner",
+        yaw_deg=-45,
+        note="faces diagonally forward-left; symmetric with right45",
+    ),
+    "right45": SensorMount(
+        name="right45",
+        position="front-right corner",
+        yaw_deg=45,
+        note="faces diagonally forward-right; symmetric with left45",
+    ),
+}
+
 DEFAULT_WINDOW = 5
 DEFAULT_WARMUP = 2
 

@@ -127,6 +127,9 @@ def main() -> int:
             # State machine + motor command
             cmd = sm.step(f, l, r, last_signal)
             _execute(motors, cmd)
+            if sm.done:
+                tracer.info("maze exit reached, exiting main loop", tick=tick_count)
+                break
 
             # Periodic loop-duration health check (helps spot the Pi
             # falling behind its 100ms budget).

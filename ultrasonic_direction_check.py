@@ -44,7 +44,7 @@ try:
 except Exception:  # noqa: BLE001
     GPIO = None  # type: ignore[assignment]
 
-from hal.ultrasonics import DEFAULT_PINS, Ultrasonics
+from hal.ultrasonics import DEFAULT_PINS, SENSOR_MOUNTS, Ultrasonics
 from logs.trace import tracer
 
 # --------------------------------------------------------------------- #
@@ -68,9 +68,18 @@ LABEL = {
     for key, (trig, echo) in DEFAULT_PINS.items()
 }
 PLACEMENT = {
-    "front": "차 정면 바로 앞 10~15cm 에 평평한 판/손바닥을 대세요.",
-    "left": "왼쪽 센서가 향하는 방향(전방 약 45° 왼쪽) 10~15cm 에 대세요.",
-    "right": "오른쪽 센서가 향하는 방향(전방 약 45° 오른쪽) 10~15cm 에 대세요.",
+    "front": (
+        "FRONT는 차 앞쪽(사진 기준 위쪽) 중앙 노즈에 정면 0°로 장착. "
+        "차 정면 바로 앞 10~15cm 에 평평한 판/손바닥을 대세요."
+    ),
+    "left": (
+        "LEFT45는 앞-왼쪽 모서리에 전방 왼쪽 45°로 장착. "
+        "그 센서가 향하는 방향 10~15cm 에 대세요."
+    ),
+    "right": (
+        "RIGHT45는 앞-오른쪽 모서리에 전방 오른쪽 45°로 장착. "
+        "그 센서가 향하는 방향 10~15cm 에 대세요."
+    ),
 }
 
 PASS = "PASS"
@@ -194,6 +203,8 @@ def print_guide() -> None:
     print(" 방법: 각 단계에서 '한 방향'에만 장애물을 10~15cm 대고,")
     print("       나머지 방향은 50cm 이상 비워둔 뒤 Enter.")
     print("       기대한 센서가 단독으로 가깝게 잡히면 PASS.")
+    print(" 장착: FRONT=앞 중앙 0°, LEFT45=앞-왼쪽 45°, RIGHT45=앞-오른쪽 45°.")
+    print("       세 센서는 같은 높이/수평, 차체나 전선에 초음파 원뿔이 막히지 않게.")
     print("=" * 64)
     print()
 
@@ -203,7 +214,9 @@ def print_step_guide(direction: str) -> None:
     place the object). Shared by the live run and ``--demo`` so the two
     show the SAME guide and can't drift."""
     sensor = EXPECTED_SENSOR[direction]
+    mount = SENSOR_MOUNTS[sensor]
     print(f"[{direction.upper()}] {LABEL[sensor]} 점검")
+    print(f"    장착 기준: {mount.position}, yaw={mount.yaw_deg:+d}°")
     print(f"    {PLACEMENT[direction]}  (다른 방향은 비워두세요) → Enter")
 
 

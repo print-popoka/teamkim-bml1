@@ -40,7 +40,7 @@ echo
 echo "[install] DONE."
 echo
 echo "Every boot from now on:"
-echo "  1. waits BOOT_DELAY_S (default 15) seconds"
+echo "  1. waits BOOT_DELAY_S (default 20) seconds"
 echo "  2. runs: python3 main.py --duration RUN_DURATION_S --name RUN_NAME"
 echo "  3. writes trace to logs/runs/<ts>_RUN_NAME.jsonl"
 echo
@@ -49,7 +49,7 @@ echo "  Edit tunables (delay, duration, name):"
 echo "    sudo systemctl edit $SERVICE_NAME"
 echo "    # then add e.g.:"
 echo "    #   [Service]"
-echo "    #   Environment=RUN_DURATION_S=30"
+echo "    #   Environment=RUN_DURATION_S=120"
 echo "    #   Environment=RUN_NAME=maze_lap_01"
 echo
 echo "  Disable temporarily (skip autostart on next boot):"

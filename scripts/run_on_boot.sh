@@ -16,10 +16,9 @@ REPO_DIR="${REPO_DIR:-/home/team2/teamkim-bml1}"
 BOOT_DELAY_S="${BOOT_DELAY_S:-20}"
 RUN_DURATION_S="${RUN_DURATION_S:-300}"
 RUN_NAME="${RUN_NAME:-boot_run}"
-# Which entrypoint to run. integration_test.py is the simple
-# forward / U-turn / right-turn / green-exit scenario; main.py is the
-# full wall-following maze loop. Override via systemctl edit if needed.
-RUN_SCRIPT="${RUN_SCRIPT:-integration_test.py}"
+# Which entrypoint to run. main.py is the full wall-following maze loop.
+# integration_test.py remains available as an explicit override only.
+RUN_SCRIPT="${RUN_SCRIPT:-main.py}"
 
 ts() { date -Is 2>/dev/null || date; }
 

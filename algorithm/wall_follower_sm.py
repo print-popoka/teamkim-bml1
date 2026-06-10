@@ -7,6 +7,7 @@ States
   FOLLOWING           - normal smooth wall-following via WallFollowController.
   STOPPED_AT_RED      - perception said STOP; brakes locked until explicit GREEN.
   PIVOTING            - pivot fallback for tight dead-ends; held until front clears.
+  EXITED              - maze exit detected; motors stay stopped.
 
 Transition rules (per CLAUDE.md):
   - RED -> STOPPED_AT_RED from any moving state.
@@ -16,6 +17,8 @@ Transition rules (per CLAUDE.md):
   - If WallFollowController.step() returns action='pivot_*', we enter PIVOTING.
   - In PIVOTING, exit back to FOLLOWING when front_cm > PIVOT_EXIT_FRONT_CM
     sustained for PIVOT_EXIT_HOLD_TICKS.
+  - After the robot has actually found maze walls, if front/left/right all
+    stay open for EXIT_HOLD_TICKS, treat that as the exit and stop.
 """
 
 from __future__ import annotations
@@ -31,11 +34,26 @@ from control.wall_follow import WallFollowCommand, WallFollowController
 # module is importable off the Pi where cv2 isn't installed — needed for
 # `python main.py --dry-run` on dev machines.
 Signal = Literal["STOP", "GO", "UNKNOWN"]
-State = Literal["INITIALIZING", "FOLLOWING", "STOPPED_AT_RED", "PIVOTING", "RECOVERING"]
+State = Literal[
+    "INITIALIZING",
+    "FOLLOWING",
+    "STOPPED_AT_RED",
+    "PIVOTING",
+    "RECOVERING",
+    "EXITED",
+]
 
 INIT_WALL_FOUND_CM = 30.0
 PIVOT_EXIT_FRONT_CM = 18.0
 PIVOT_EXIT_HOLD_TICKS = 5
+
+# Maze-exit detector. It is disabled during INITIALIZING so the robot can
+# start in open space and drive into the maze. Once it has found a wall,
+# sustained open readings on all three sensors are the best 3-HC-SR04-only
+# signal that the car has left the corridor. Keep this conservative: a
+# single open junction must not stop the run.
+EXIT_OPEN_CM = 80.0
+EXIT_HOLD_TICKS = 10
 
 # Infinite-pivot bailout: if PIVOTING runs this many ticks without the front
 # clearing, the dead-end isn't resolving (the car isn't rotating free), so we
@@ -66,11 +84,18 @@ class WallFollowerSM:
         self._pivot_clear_ticks = 0
         self._pivot_ticks = 0       # total ticks in the current PIVOTING episode
         self._recover_ticks = 0     # ticks elapsed in RECOVERING reverse-escape
+        self._exit_open_ticks = 0   # consecutive all-open ticks after wall found
+        self._has_found_wall = False
         tracer.state(state=self._state, from_state=None, reason="boot")
 
     @property
     def state(self) -> State:
         return self._state
+
+    @property
+    def done(self) -> bool:
+        """True when the live run can end without waiting for --duration."""
+        return self._state == "EXITED"
 
     def step(
         self,
@@ -79,6 +104,10 @@ class WallFollowerSM:
         right_cm: float | None,
         signal: Signal,
     ) -> HighLevelCommand:
+        # Once exited, stay stopped. Do not let later UNKNOWN/GO frames resume.
+        if self._state == "EXITED":
+            return HighLevelCommand(action="stop", reason="maze exit reached")
+
         # Traffic-light gating (highest priority).
         if signal == "STOP" and self._state != "STOPPED_AT_RED":
             self._transition("STOPPED_AT_RED", reason="perception: STOP")
@@ -108,6 +137,7 @@ class WallFollowerSM:
             if (left_cm is not None and left_cm < INIT_WALL_FOUND_CM) or (
                 right_cm is not None and right_cm < INIT_WALL_FOUND_CM
             ):
+                self._has_found_wall = True
                 self._transition("FOLLOWING", reason=f"wall found (l={left_cm}, r={right_cm})")
             else:
                 return HighLevelCommand(
@@ -115,6 +145,16 @@ class WallFollowerSM:
                     linear_speed=INIT_FORWARD_SPEED,
                     reason="searching for wall",
                 )
+
+        if self._maybe_exit(front_cm, left_cm, right_cm):
+            self._transition(
+                "EXITED",
+                reason=(
+                    f"all sensors open for {EXIT_HOLD_TICKS} ticks "
+                    f"(f={front_cm}, l={left_cm}, r={right_cm})"
+                ),
+            )
+            return HighLevelCommand(action="stop", reason="maze exit reached")
 
         # Wall-follow controller.
         wf_cmd = self._controller.step(front_cm, left_cm, right_cm)
@@ -161,6 +201,33 @@ class WallFollowerSM:
         old = self._state
         self._state = new
         tracer.state(state=new, from_state=old, reason=reason)
+
+    def _maybe_exit(
+        self,
+        front_cm: float | None,
+        left_cm: float | None,
+        right_cm: float | None,
+    ) -> bool:
+        """Detect the physical maze exit from sustained open space.
+
+        None is treated as open here because once the robot is outside the
+        walls HC-SR04 may legitimately timeout. This detector is only enabled
+        after a side wall was seen in INITIALIZING, so startup in open space
+        cannot falsely complete the run.
+        """
+        if not self._has_found_wall or self._state == "STOPPED_AT_RED":
+            self._exit_open_ticks = 0
+            return False
+
+        open_all = all(
+            v is None or v >= EXIT_OPEN_CM
+            for v in (front_cm, left_cm, right_cm)
+        )
+        if open_all:
+            self._exit_open_ticks += 1
+        else:
+            self._exit_open_ticks = 0
+        return self._exit_open_ticks >= EXIT_HOLD_TICKS
 
 
 def _wf_to_high(cmd: WallFollowCommand) -> HighLevelCommand:

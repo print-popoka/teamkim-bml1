@@ -13,9 +13,9 @@ sudo reboot                # required so group membership (gpio + video) sticks
 ```
 
 After reboot, every power-on will:
-1. Wait `BOOT_DELAY_S` seconds (default 15) — place the car, step away
+1. Wait `BOOT_DELAY_S` seconds (default 20) — place the car, step away
 2. Run `python3 main.py --duration RUN_DURATION_S --name RUN_NAME`
-   (defaults: 60 seconds, name `boot_run`)
+   (defaults: 300 seconds, name `boot_run`)
 3. Trace lands in `~/teamkim-bml1/logs/runs/<timestamp>_boot_run.jsonl`
 4. Pi stays powered after run completes — pull battery whenever
 
