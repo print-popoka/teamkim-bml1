@@ -20,7 +20,7 @@ from typing import Literal
 Signal = Literal["STOP", "GO", "UNKNOWN"]
 
 # Minimum circular area (px) for a color blob to count as a real signal.
-MIN_AREA = 200
+MIN_AREA = 500
 # A winner must beat the other color by this factor to commit (keeps GREEN
 # conservative so a faint/partial green can't be called GO).
 WIN_MARGIN = 1.5

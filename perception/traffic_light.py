@@ -34,15 +34,15 @@ from perception.signal_logic import MIN_AREA, WIN_MARGIN, Signal, decide_signal
 # HSV thresholds — single source of truth. The debug CLI
 # camera/hsv_circle.py imports these (with snake_case aliases) so the
 # two cannot drift. Update here when re-calibrating against new lighting.
-RED_LOWER_1 = np.array([0, 150, 100])
-RED_UPPER_1 = np.array([12, 255, 255])
-RED_LOWER_2 = np.array([165, 150, 100])
+RED_LOWER_1 = np.array([0, 180, 130])
+RED_UPPER_1 = np.array([10, 255, 255])
+RED_LOWER_2 = np.array([170, 180, 130])
 RED_UPPER_2 = np.array([179, 255, 255])
-GREEN_LOWER = np.array([35, 135, 100])
-GREEN_UPPER = np.array([90, 255, 255])
+GREEN_LOWER = np.array([35, 160, 130])
+GREEN_UPPER = np.array([85, 255, 255])
 
-MIN_CIRCULARITY = 0.55
-MIN_RADIUS = 6
+MIN_CIRCULARITY = 0.70
+MIN_RADIUS = 12
 MAX_RADIUS = 140
 
 SMOOTH_WINDOW = 5
