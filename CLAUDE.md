@@ -149,6 +149,17 @@ secondary once the baseline scripts exist.
 
 ## Locked decisions (do not redo without asking)
 
+- **Completion over speed** (USER DECISION, 2026-06-10): the tuning target
+  is **95/100 completed runs**, not lap time. Any future retune must keep
+  this priority — raise CRUISE only after completion rate is proven.
+- **No self-stop / maze-exit auto-detection** (USER DECISION, 2026-06-10):
+  the EXITED state and `_maybe_exit` were REMOVED. A false "exit detected"
+  stop mid-maze kills the run; a true exit is handled by cutting power.
+  The run ends via Ctrl+C / `--duration` / battery pull. Do NOT re-add a
+  self-stop. `STOPPED_AT_RED` stays — that one is a graded requirement.
+- **Right-hand purity** (2026-06-11): LEFT openings are never turned into;
+  only the followed RIGHT wall ending triggers a (reacquire) turn, and left
+  turns come only from front-wall corner anticipation.
 - **Algorithm** (CONFIRMED via TA, 2026-05-17): **right-hand wall-following
   alone**. TA stated left-hand vs right-hand will yield identical times by
   design ("운에 의존하지 않을 것") — this implies the maze is simply
@@ -209,7 +220,7 @@ secondary once the baseline scripts exist.
 |---|---|
 | Can't smoothly hold the center of the corridor | PD on `right - left` in `control/wall_follow.py` |
 | Constant micro-correcting → falls behind on time | **`DEADBAND_CM`** — small errors produce **zero** centering correction. Plus **`MAX_DERROR_CM`** caps the D-term so a sensor jump can't spike steering for one bad tick. Plus error-magnitude **speed scaling** down to `SPEED_SCALE_FLOOR` so big corrections happen at a sustainable speed. |
-| Fails to recognize 90° turns / intersections | **Junction commit**: on the rising edge of `r > JUNCTION_CM` (or `l`), the controller locks in `JUNCTION_COMMIT_CURVATURE` for `JUNCTION_COMMIT_TICKS` ticks at `JUNCTION_COMMIT_SPEED`. Stops the car from "smoothing through" a tight right opening even if mid-rotation sensor readings get weird. Tests: `test_junction_*`. |
+| Fails to recognize 90° turns / intersections | **Wall-reacquire turn** (replaced the fixed junction commit, 2026-06-11): when the followed RIGHT wall is confirmed lost (valid-far ×2 ticks or long None streak), drive straight past the wall end (`REACQ_STRAIGHT_TICKS`), then arc right at `REACQ_CURVATURE`/`REACQ_SPEED` **until the wall is seen again** (closed loop — this is what makes 180° U-turns around wall ends work). LEFT openings are ignored (right-hand purity); left turns come only from front-wall corner anticipation. Tests: `test_reacquire_*`. |
 | Stops then turns at 90° corners (massive time loss) | Locked in CLAUDE.md ("smooth-drive only"). `Motors.drive(L, R)` runs both wheels always; `arc()` slows the inside wheel only; in-place pivot is dead-end fallback only. Plus **zero-clip below MIN_PWM/2** in `Motors._apply_deadband` — when an arc requests a very small inside-wheel PWM, we snap it to 0 instead of promoting to MIN_PWM, so sharp turns stay sharp. |
 
 Whenever editing the controller or state machine, keep these defenses
@@ -447,8 +458,11 @@ sensor/   legacy + ultrasonic_noise stats tool
 hal/         ultrasonics.Ultrasonics  (3-sensor + median filter + warmup)
              motors.Motors             (drive(L,R) primitive + helpers)
 perception/  traffic_light.TrafficLightDetector  (hsv_circle logic, reusable)
-control/     wall_follow.WallFollowController     (smooth PD + corner anticip)
-algorithm/   wall_follower_sm.WallFollowerSM       (INIT/FOLLOW/STOP@RED/PIVOT)
+control/     wall_follow.WallFollowController     (smooth PD + corner anticip
+                                                   + wall-reacquire U-turn)
+algorithm/   wall_follower_sm.WallFollowerSM       (INIT/FOLLOW/STOP@RED/
+                                                   PIVOT/RECOVER — no EXITED)
+tools/       maze_sim.py                           (2 mazes + dropout noise)
 logs/        trace.tracer                          (JSONL session events)
 docs/        test_day_checklist.md, STATUS.md
 ```

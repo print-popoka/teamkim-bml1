@@ -124,12 +124,11 @@ def main() -> int:
                 last_signal = reading.signal
                 frame_id += 1
 
-            # State machine + motor command
+            # State machine + motor command. There is no self-stop /
+            # exit auto-detection (removed 2026-06-10): the run ends via
+            # Ctrl+C, --duration, or battery pull.
             cmd = sm.step(f, l, r, last_signal)
             _execute(motors, cmd)
-            if sm.done:
-                tracer.info("maze exit reached, exiting main loop", tick=tick_count)
-                break
 
             # Periodic loop-duration health check (helps spot the Pi
             # falling behind its 100ms budget).

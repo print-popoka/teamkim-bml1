@@ -1,36 +1,66 @@
-"""Smooth wall-following controller.
+"""Smooth wall-following controller — completion-first tuning.
 
 Inputs: filtered distances (cm) from front / left45 / right45 ultrasonics.
 Output: ``WallFollowCommand`` with (linear_speed, curvature) — fed into
 ``Motors.arc(linear, curvature)``.
 
-Design (per CLAUDE.md, PI feedback "smooth, never stop-and-turn"):
+Field-failure-driven design (2026-06-10 test runs):
 
-  1. **Center-following PD** in straight corridors.
-     error = right_dist - left_dist (positive => more room on right =>
-     curve right, i.e. negative curvature in our convention).
+  The car must finish the maze ~95/100 runs. Speed is secondary. The
+  observed failure modes and their defenses, in priority order:
 
-  2. **Corner anticipation from front distance**. As front shortens, we
-     start curving toward the side with more space — well before we'd
-     hit the wall. Produces a smooth arc through 90 deg corners.
+  F1. U-TURN FAILURE (top killer): the followed right wall ends at a
+      baffle/spine end and the car must wrap ~180° around it. A fixed
+      open-loop "commit" arc cannot do that. Replaced with a CLOSED-LOOP
+      **wall-reacquire turn**: once the right wall is confirmed lost, arc
+      right at low speed UNTIL the wall is seen again (or front blocks /
+      timeout). See REACQ_* constants.
 
-  3. **Narrowing detection -> slow down**. If both side distances drop
-     together (corridor narrowing), reduce linear speed so the PD has
-     more time to correct.
+  F2. ZIGZAG -> side-wall hit: the old junction threshold (40 cm) sat
+      inside the band of NORMAL corridor readings (45-deg sensors in a
+      ~50 cm corridor read 35-45 cm), so phantom "junction commits"
+      fired mid-straight and swerved the car into walls. Openness now
+      starts at REACQ_OPEN_CM (60), centering gain is lower, deadband
+      wider, centering output capped at CENTERING_MAX, and curvature may
+      only GROW by MAX_CURVATURE_STEP per tick.
 
-  4. **Clearance guard**. If any side distance falls below SAFE_MARGIN_CM,
-     force a curve away from that wall regardless of normal PD.
+  F3. LEFT openings are IGNORED (right-hand rule). The old code
+      committed into left openings too, which swerved the car off the
+      followed wall in turnaround pockets. Left turns happen only via
+      front-wall corner anticipation.
 
-  5. **Pivot fallback**. If front is so close that an arc can't fit
-     (sub ARC_MIN_CM), raise ``need_pivot`` so the state machine can call
-     ``Motors.pivot_*``. Dead-end U-turn path only.
+  F4. CORNERS missed: corner anticipation starts earlier
+      (CORNER_ANTICIPATE_REF_CM raised) with a slower corner floor, the
+      open-side choice runs on HELD values so a one-tick side dropout
+      cannot flip the turn into a wall that is still there, and an
+      unknown front (sustained None) caps speed at APPROACH_SPEED
+      instead of letting the car cruise blind.
 
-Speed table derives from one knob ``CRUISE`` (hardware-day tunable); the
-forward-speed profile (``front_speed``) and corner anticipation
-(``corner_anticipate_cm``) are pure, cruise-aware functions — magnitudes
-are tunable, the shapes are fixed. At the reference cruise the derived
-values reproduce the previously tuned table exactly (behaviour-preserving
-generalisation). Refine the magnitudes after the maze test.
+Noise policy (HC-SR04s sit buried in 3D-printed guides; None bursts are
+constant):
+
+  - A side None HOLDS the last valid reading until DEAD_SENSOR_TICKS
+    mirroring takes over — a None can never read as "400/open" to the
+    PD. Distance continuity: a wall at 15 cm cannot become 400 cm in
+    one tick.
+  - The wall-reacquire trigger accepts two kinds of "wall lost"
+    evidence: sustained VALID far readings (beam crossing the wall edge
+    reaches the far side), or a LONG None streak while the front is
+    open (real openings at 45 degrees often return no echo at all).
+    Both are confirmed over multiple ticks so single dropouts do nothing.
+  - The front None holds for FRONT_NONE_HOLD_TICKS, then the default
+    flips to open BUT speed is capped at APPROACH_SPEED while unknown.
+
+Actuation smoothing (anti-lurch):
+
+  - Curvature may RELAX toward zero instantly but only GROW away from
+    zero by MAX_CURVATURE_STEP per tick (clearance guard and the
+    reacquire turn are deliberate maneuvers and bypass this).
+  - Speed may drop instantly (braking) but only rise ACCEL_PWM_PER_TICK
+    per tick.
+
+Smooth-drive contract (PI feedback) is unchanged: both wheels always
+turn while moving; in-place pivots remain dead-end / head-on fallbacks.
 """
 
 from __future__ import annotations
@@ -38,120 +68,130 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from logs.trace import tracer  # noqa: F401 — used by _maybe_log_junction + _trace
+from logs.trace import tracer
 
 SAFE_MARGIN_CM = 4.0
 ARC_MIN_CM = 12.0
 NARROWING_CM = 14.0
 
+# Head-on emergency: below this front distance an arc cannot clear the
+# wall (turn radius ~ half the wheelbase), so we rotate in place toward
+# the more open side instead of grinding the nose against the wall.
+FRONT_PIVOT_CM = 8.0
+
 # A side sensor returning None for this many CONSECUTIVE ticks is treated as
-# DEAD (not a real opening): the controller then mirrors it to the live side
-# so the centering PD and junction-commit never steer toward the blind wall.
-# A brief None (< this) is still treated as "open" (default 400) so legitimate
-# junction right-turns still fire. The hal median already absorbs single-tick
-# dropouts, so this only engages on SUSTAINED dropout. Pi-tunable: lower =
-# faster dead-sensor protection but risks cutting a slow junction turn short
-# (~2.5s at 10Hz). Assumes the LEFT45/RIGHT45 wiring is healthy; this is
-# mid-run-failure defense, not a substitute for the wiring fix.
+# DEAD: the controller then mirrors it to the live side so the centering PD
+# never steers toward the blind wall. Below this count the last valid
+# reading is held — there is deliberately NO gap where None reads as open.
 DEAD_SENSOR_TICKS = 8
+
+# Front None holds the last valid reading this many ticks; after that the
+# front is UNKNOWN: distance defaults to open for steering purposes, but
+# speed is capped at APPROACH_SPEED (never cruise blind into a corner).
+FRONT_NONE_HOLD_TICKS = 5
 
 # --------------------------------------------------------------------- #
 # Speed table — derived from ONE hardware-day knob, CRUISE.
-# CRUISE is the straight-corridor speed/PWM you measure as the fastest
-# stable value on test day; everything else scales off it so there is a
-# single dial, not 3-4 that can drift out of sync. At the reference cruise
-# (45) the derived values reproduce the previously tuned table
-# (BASE 45 / APPROACH ~35 / SLOW ~30), so this is a behaviour-preserving
-# generalisation. CRUISE and the fractions are MAGNITUDE tunables; the
-# *derivation* (table = fractions * CRUISE) is the structural part.
-# CRUISE is a THROTTLE scalar only — distance/gain constants
-# (CORNER_ANTICIPATE_*, NARROWING_CM, KP_CORNER) are NOT routed through it.
+# Completion-first: CRUISE lowered 38 -> 34 (2026-06-10 field decision:
+# 95/100 finishes beat 10 fast finishes).
 # --------------------------------------------------------------------- #
-CRUISE = 38.0                    # hardware-day knob (straight-corridor speed)
-CRUISE_REF = 45.0                # cruise the table/anticipation were tuned at
-CORNER_APPROACH_FRACTION = 0.78  # corner-approach floor speed = CRUISE * this (~35)
-SLOW_FRACTION = 2.0 / 3.0        # narrowing/clearance speed   = CRUISE * this (~30)
+CRUISE = 34.0                    # hardware-day knob (straight-corridor speed)
+CRUISE_REF = 45.0                # cruise the anticipation table was tuned at
+CORNER_APPROACH_FRACTION = 0.70  # corner-approach floor speed = CRUISE * this
+SLOW_FRACTION = 2.0 / 3.0        # narrowing/clearance speed   = CRUISE * this
 
 BASE_SPEED = CRUISE                                  # open-straight cruise (importable)
-APPROACH_SPEED = CRUISE * CORNER_APPROACH_FRACTION   # corner-approach floor speed
+APPROACH_SPEED = CRUISE * CORNER_APPROACH_FRACTION   # corner floor + blind-front cap
 SLOW_SPEED = CRUISE * SLOW_FRACTION                  # narrowing + clearance guards
 
-KP_CENTER = 0.05
+# Centering PD — softened vs the zigzag-era values (KP 0.05/KD 0.06/DB 2.0):
+# lower P, more D damping, wider deadband, and a hard cap on how much
+# steering the centering term alone may request. Corner anticipation and
+# the guards may still saturate steering; lane-keeping may not.
+KP_CENTER = 0.035
+KD_CENTER = 0.08
+DEADBAND_CM = 3.0
+CENTERING_MAX = 0.5
+
 KP_CORNER = 0.05
-KD_CENTER = 0.06
 
-# Corner anticipation is SPEED-AWARE: a faster car must begin its arc
-# earlier. The lead distance is CORNER_ANTICIPATE_REF_CM at CRUISE_REF and
-# grows by ANTICIPATE_GAIN cm per unit of CRUISE above CRUISE_REF. This is
-# an additive-from-reference coupling (NOT a multiplicative throttle scale),
-# so at the reference cruise the gain term vanishes => the onset is exactly
-# 25 cm and runtime behaviour is identical to the old fixed value. The
-# coupling only engages once CRUISE is raised on hardware day.
-CORNER_ANTICIPATE_REF_CM = 40.0
-MIN_ANTICIPATE_CM = 20.0         # never anticipate closer than this
-ANTICIPATE_GAIN = 0.5            # extra cm of corner lead per unit cruise > ref
+# Corner anticipation is SPEED-AWARE: lead distance is
+# CORNER_ANTICIPATE_REF_CM at CRUISE_REF, +/- ANTICIPATE_GAIN cm per unit
+# of CRUISE away from the reference, floored at MIN_ANTICIPATE_CM.
+CORNER_ANTICIPATE_REF_CM = 45.0
+MIN_ANTICIPATE_CM = 20.0
+ANTICIPATE_GAIN = 0.5
 
-# front_speed ramp: at/below CORNER_FLOOR_CM the car sits on the corner
-# floor speed; it ramps linearly up to full CRUISE by the anticipation
-# onset. Must stay strictly below that onset or the ramp degenerates to a
-# step (the continuity test catches this).
+# front_speed ramp: corner-floor plateau below CORNER_FLOOR_CM, linear
+# ramp up to full CRUISE at the anticipation onset.
 CORNER_FLOOR_CM = 12.0
 
-# Errors below this (cm) get no centering correction.
-# Addresses prof's tip #2: teams over-correct and waste forward progress.
-DEADBAND_CM = 2.0
-
-# Cap on |derror| per tick. Without this, a side wall disappearing at
-# a junction makes derror huge (e.g. 15 -> 400 in one tick = 385cm),
-# KD * derror dominates and the controller spasms for one tick.
+# Cap on |derror| per tick (D-term spike guard on sensor jumps).
 MAX_DERROR_CM = 5.0
 
-# When right_cm exceeds this, the right wall has effectively disappeared
-# (right-opening / T-junction / cross intersection). On the rising edge
-# we COMMIT to a sharp right curve for JUNCTION_COMMIT_TICKS, ignoring
-# what the PD says. This stops the car from "smoothing through" a tight
-# right opening and missing the turn.
-JUNCTION_CM = 40.0
-JUNCTION_COMMIT_TICKS = 6           # 6 ticks @ 10Hz = 600ms of committed arc
-JUNCTION_COMMIT_CURVATURE = -0.85   # sharp right (not max -1.0 — keep some smoothness)
-JUNCTION_COMMIT_SPEED = 35.0        # slower during the commit for safety
+# As |error| grows, scale down speed (don't overshoot corrections).
+SPEED_SCALE_ERROR_REF = 20.0
+SPEED_SCALE_FLOOR = 0.55
 
-# As |error| grows, scale down speed. Big errors mean we are off-center
-# (or in a junction); driving slower while we correct keeps the car from
-# overshooting and reduces wall scrapes. Linear ramp; bottoms out at
-# SPEED_SCALE_FLOOR so we never freeze.
-SPEED_SCALE_ERROR_REF = 20.0  # error in cm at which speed drops to floor
-SPEED_SCALE_FLOOR = 0.55      # never below 55% of requested speed
+# Wide-area cap: both sides beyond this means no usable lateral reference
+# (open pocket / turnaround) — hold below full cruise.
+WIDE_OPEN_CM = 60.0
+WIDE_AREA_SPEED_FRACTION = 0.85
+
+# Anti-lurch slew limits.
+MAX_CURVATURE_STEP = 0.25     # max growth of |curvature| per tick (PD path)
+ACCEL_PWM_PER_TICK = 2.0      # max speed increase per tick; decel is instant
+
+# --------------------------------------------------------------------- #
+# Wall-reacquire turn (the U-turn fix, F1) — closed-loop right turn that
+# runs when the followed right wall is confirmed lost.
+#
+#   ARM:      right shows a valid wall (<= WALL_PRESENT_CM) for
+#             REACQ_ARM_TICKS consecutive ticks. Arming survives until a
+#             reacquire actually triggers.
+#   TRIGGER:  armed AND (valid right > REACQ_OPEN_CM for
+#             REACQ_CONFIRM_TICKS ticks, OR right None for
+#             REACQ_NONE_TICKS ticks while the front is not blocked).
+#   DO:       drive STRAIGHT for REACQ_STRAIGHT_TICKS (the 45-deg sensor
+#             spots the opening ~0.7 x wall-distance BEFORE the car body
+#             reaches the wall end — turning immediately clips the end),
+#             then arc(REACQ_SPEED, REACQ_CURVATURE) until the wall is
+#             reacquired.
+#   FINISH:   right shows a valid wall (<= WALL_PRESENT_CM) for
+#             REACQ_SUCCESS_TICKS ticks (wall reacquired -> resume PD),
+#             OR held front < REACQ_FRONT_ABORT_CM (corner logic owns it),
+#             OR REACQ_MAX_TICKS timeout.
+#
+# A phantom trigger (None burst while the wall is still there) is cheap:
+# the straight phase changes nothing, valid readings return as the beam
+# geometry shifts, and the success condition ends the maneuver within a
+# few ticks — a bounded low-speed hiccup, not a crash.
+# --------------------------------------------------------------------- #
+WALL_PRESENT_CM = 45.0
+REACQ_ARM_TICKS = 3
+REACQ_OPEN_CM = 60.0
+REACQ_CONFIRM_TICKS = 2
+REACQ_NONE_TICKS = 6
+REACQ_FRONT_ABORT_CM = 22.0
+REACQ_STRAIGHT_TICKS = 18     # pass the wall end before starting the wrap
+                              # (~0.7 x corridor wall distance at REACQ_SPEED)
+REACQ_MAX_TICKS = 110         # total (straight + turn) budget; the closed
+                              # loop normally exits long before this
+REACQ_SUCCESS_TICKS = 2
+REACQ_CURVATURE = -0.5        # wide wrap; tight pockets are handed to the
+                              # corner logic by the front-abort instead
+REACQ_SPEED_FRACTION = 0.75
+REACQ_SPEED = CRUISE * REACQ_SPEED_FRACTION
 
 
 def corner_anticipate_cm(cruise: float = CRUISE) -> float:
-    """Front distance at which cornering begins, as a function of cruise.
-
-    Pure function (no module state) so the speed/cruise coupling is unit-
-    testable without an import-time reload. Reads only ``cruise``; never
-    touches the (currently dead) side sensors. At ``CRUISE_REF`` this is
-    exactly ``CORNER_ANTICIPATE_REF_CM`` (== 25), so default behaviour is
-    unchanged; raising cruise pushes the onset earlier.
-    """
+    """Front distance at which cornering begins, as a function of cruise."""
     lead = CORNER_ANTICIPATE_REF_CM + ANTICIPATE_GAIN * (cruise - CRUISE_REF)
     return max(MIN_ANTICIPATE_CM, lead)
 
 
 def front_speed(front_cm: float, cruise: float = CRUISE) -> float:
-    """Continuous forward-clearance speed profile (FRONT sensor only).
-
-    Replaces the old 3-level BASE/APPROACH/SLOW step. Shape:
-      - flat ``cruise`` plateau for front >= the anticipation onset
-        (open straight => full speed),
-      - a linear ramp down to the corner floor across
-        [CORNER_FLOOR_CM, onset] (bleed speed as the corner nears),
-      - a flat corner-floor plateau (> 0) for front <= CORNER_FLOOR_CM
-        (never zero — smooth-drive, no mid-corner stall).
-    The onset is ``corner_anticipate_cm(cruise)`` so the speed ramp and the
-    corner-bias trigger share ONE cruise-coupled invariant: faster cruise
-    => leaves the plateau AND starts curving earlier, together.
-    Reads only ``front_cm``; independent of the dead LEFT45/RIGHT45.
-    """
+    """Continuous forward-clearance speed profile (FRONT sensor only)."""
     onset = corner_anticipate_cm(cruise)
     floor = cruise * CORNER_APPROACH_FRACTION
     if front_cm >= onset:
@@ -163,7 +203,6 @@ def front_speed(front_cm: float, cruise: float = CRUISE) -> float:
 
 
 # Module alias used by the controller at runtime (cruise == CRUISE here).
-# Equals CORNER_ANTICIPATE_REF_CM (25) at the reference cruise.
 CORNER_ANTICIPATE_CM = corner_anticipate_cm(CRUISE)
 
 
@@ -183,20 +222,31 @@ class WallFollowController:
 
     def __init__(self) -> None:
         self._last_error: float | None = None
-        # ``None`` means "we haven't seen this side yet". On the first tick
-        # the junction-edge detector seeds itself with the current state
-        # instead of treating it as a transition — otherwise booting in
-        # an open area would trigger a phantom right-turn commit.
-        self._right_open_active: bool | None = None
-        self._left_open_active: bool | None = None
-        self._commit_ticks_remaining: int = 0
-        self._commit_curvature: float = 0.0
-        # Consecutive-None counters per side, for dead-sensor detection.
+        # Consecutive-None counters, for hold filters + dead-sensor detection.
         self._left_none_streak: int = 0
         self._right_none_streak: int = 0
-        # Hold filters to smooth out brief sensor dropouts (None flickering)
+        self._front_none_streak: int = 0
+        # Hold filters: last valid reading per sensor.
         self._last_valid_left: float | None = None
         self._last_valid_right: float | None = None
+        self._last_valid_front: float | None = None
+        # Wall-reacquire (U-turn) state.
+        self._right_wall_streak: int = 0
+        self._right_valid_open_streak: int = 0
+        self._reacq_armed: bool = False
+        self._reacq_active: bool = False
+        self._reacq_ticks: int = 0
+        self._reacq_success_streak: int = 0
+        # Actuation slew state. Curvature starts from "straight" so the
+        # very first command cannot be a full-lock lurch; speed starts
+        # unconstrained (None) so one-shot uses see the true profile.
+        self._last_curvature: float = 0.0
+        self._last_speed: float | None = None
+
+    @property
+    def in_reacquire(self) -> bool:
+        """True while the closed-loop right-wall reacquire turn runs."""
+        return self._reacq_active
 
     def step(
         self,
@@ -204,9 +254,7 @@ class WallFollowController:
         left_cm: float | None,
         right_cm: float | None,
     ) -> WallFollowCommand:
-        # Track sustained side dropouts: a DEAD sensor (mirror it to the live
-        # side -> never steer toward the blind wall) vs a brief None at a real
-        # opening (keep treating as open so junction turns still fire).
+        # --- None streaks + hold filters --------------------------------
         if left_cm is not None:
             self._last_valid_left = left_cm
             self._left_none_streak = 0
@@ -219,22 +267,45 @@ class WallFollowController:
         else:
             self._right_none_streak += 1
 
-        # Brief None hold filter: reuse last valid reading if None is brief (< 5 ticks)
+        if front_cm is not None:
+            self._last_valid_front = front_cm
+            self._front_none_streak = 0
+        else:
+            self._front_none_streak += 1
+
         l_filtered = left_cm
-        if l_filtered is None and self._left_none_streak < 5 and self._last_valid_left is not None:
+        if (
+            l_filtered is None
+            and self._left_none_streak < DEAD_SENSOR_TICKS
+            and self._last_valid_left is not None
+        ):
             l_filtered = self._last_valid_left
 
         r_filtered = right_cm
-        if r_filtered is None and self._right_none_streak < 5 and self._last_valid_right is not None:
+        if (
+            r_filtered is None
+            and self._right_none_streak < DEAD_SENSOR_TICKS
+            and self._last_valid_right is not None
+        ):
             r_filtered = self._last_valid_right
 
-        f = self._safe(front_cm, default=400.0)
+        f_filtered = front_cm
+        front_unknown = False
+        if f_filtered is None:
+            if (
+                self._front_none_streak < FRONT_NONE_HOLD_TICKS
+                and self._last_valid_front is not None
+            ):
+                f_filtered = self._last_valid_front
+            else:
+                front_unknown = True
+
+        f = self._safe(f_filtered, default=400.0)
         l = self._safe(l_filtered, default=400.0)
         r = self._safe(r_filtered, default=400.0)
 
-        # Dead-side mirroring: only after DEAD_SENSOR_TICKS consecutive None,
-        # and only when the OTHER side is live, so a real opening (brief None)
-        # is untouched. Both dead -> both stay 400 (-> error 0 -> straight).
+        # Dead-side mirroring (sustained dropout): never steer toward the
+        # blind wall. Both dead -> both 400 -> straight.
         left_dead = self._left_none_streak >= DEAD_SENSOR_TICKS
         right_dead = self._right_none_streak >= DEAD_SENSOR_TICKS
         if left_dead and not right_dead:
@@ -242,74 +313,109 @@ class WallFollowController:
         elif right_dead and not left_dead:
             r = l
 
-        # 5. Pivot fallback ---------------------------------------------
+        # --- Wall-presence bookkeeping for the reacquire turn ------------
+        right_wall_now = right_cm is not None and right_cm <= WALL_PRESENT_CM
+        if right_wall_now:
+            self._right_wall_streak += 1
+            if self._right_wall_streak >= REACQ_ARM_TICKS:
+                self._reacq_armed = True
+        else:
+            self._right_wall_streak = 0
+        if right_cm is not None and right_cm > REACQ_OPEN_CM:
+            self._right_valid_open_streak += 1
+        else:
+            self._right_valid_open_streak = 0
+
+        # --- Pivot fallbacks (preempt everything; cancel reacquire) ------
         if f < ARC_MIN_CM and l < ARC_MIN_CM and r < ARC_MIN_CM:
-            cmd = WallFollowCommand(
-                action="pivot_right",
+            self._end_reacquire("dead-end")
+            action: Action = "pivot_left" if l > r else "pivot_right"
+            return self._emit(WallFollowCommand(
+                action=action,
                 linear_speed=30.0,
                 reason=f"dead-end (f={f:.1f} l={l:.1f} r={r:.1f})",
-            )
-            self._trace(cmd)
-            return cmd
+            ))
 
-        # 4. Clearance guard --------------------------------------------
+        if f < FRONT_PIVOT_CM:
+            self._end_reacquire("front emergency")
+            action = "pivot_left" if l > r else "pivot_right"
+            return self._emit(WallFollowCommand(
+                action=action,
+                linear_speed=30.0,
+                reason=f"front emergency (f={f:.1f} l={l:.1f} r={r:.1f})",
+            ))
+
+        # --- Clearance guards --------------------------------------------
         if l < SAFE_MARGIN_CM:
-            cmd = WallFollowCommand(
+            return self._emit(WallFollowCommand(
                 action="arc",
                 linear_speed=SLOW_SPEED,
                 curvature=-0.8,
                 reason=f"clearance left ({l:.1f}<{SAFE_MARGIN_CM:.1f})",
-            )
-            self._trace(cmd)
-            return cmd
+            ))
         if r < SAFE_MARGIN_CM:
-            cmd = WallFollowCommand(
+            # Wall is back (very close); the reacquire turn is over.
+            self._end_reacquire("clearance right")
+            return self._emit(WallFollowCommand(
                 action="arc",
                 linear_speed=SLOW_SPEED,
                 curvature=+0.8,
                 reason=f"clearance right ({r:.1f}<{SAFE_MARGIN_CM:.1f})",
+            ))
+
+        # --- Wall-reacquire turn (F1: the U-turn around a wall end) ------
+        if self._reacq_active:
+            self._reacq_ticks += 1
+            if right_wall_now:
+                self._reacq_success_streak += 1
+            else:
+                self._reacq_success_streak = 0
+
+            if self._reacq_success_streak >= REACQ_SUCCESS_TICKS:
+                self._end_reacquire("wall reacquired")
+            elif f < REACQ_FRONT_ABORT_CM:
+                self._end_reacquire("front blocked, corner logic takes over")
+            elif self._reacq_ticks > REACQ_MAX_TICKS:
+                self._end_reacquire("timeout")
+            else:
+                in_straight = self._reacq_ticks <= REACQ_STRAIGHT_TICKS
+                phase = "straight" if in_straight else "turn"
+                return self._emit(WallFollowCommand(
+                    action="arc",
+                    linear_speed=REACQ_SPEED,
+                    curvature=0.0 if in_straight else REACQ_CURVATURE,
+                    reason=(
+                        f"reacquire_right ({phase} "
+                        f"t={self._reacq_ticks}/{REACQ_MAX_TICKS}) "
+                        f"f={f:.1f} l={l:.1f} r={r:.1f}"
+                    ),
+                ))
+        elif self._reacq_armed:
+            valid_open = self._right_valid_open_streak >= REACQ_CONFIRM_TICKS
+            none_open = (
+                self._right_none_streak >= REACQ_NONE_TICKS
+                and f > REACQ_FRONT_ABORT_CM
             )
-            self._trace(cmd)
-            return cmd
+            if valid_open or none_open:
+                self._reacq_armed = False
+                self._reacq_active = True
+                self._reacq_ticks = 1
+                self._reacq_success_streak = 0
+                tracer.info(
+                    "right_wall_lost_reacquire",
+                    front=f, left=l, right=r,
+                    trigger="valid_far" if valid_open else "none_streak",
+                )
+                return self._emit(WallFollowCommand(
+                    action="arc",
+                    linear_speed=REACQ_SPEED,
+                    curvature=0.0,  # straight phase first: pass the wall end
+                    reason=f"reacquire_right (start) f={f:.1f} l={l:.1f} r={r:.1f}",
+                ))
 
-        # Junction detection — emits trace + sets up commit on rising edge.
-        new_right_open, new_left_open = self._maybe_log_junction(f, l, r)
-        # First tick: just seed; never treat boot state as an "edge".
-        if self._right_open_active is None or self._left_open_active is None:
-            self._right_open_active = new_right_open
-            self._left_open_active = new_left_open
-        else:
-            if new_right_open and not self._right_open_active:
-                self._commit_ticks_remaining = JUNCTION_COMMIT_TICKS
-                self._commit_curvature = JUNCTION_COMMIT_CURVATURE  # right
-            elif new_left_open and not self._left_open_active:
-                self._commit_ticks_remaining = JUNCTION_COMMIT_TICKS
-                self._commit_curvature = -JUNCTION_COMMIT_CURVATURE  # left
-            self._right_open_active = new_right_open
-            self._left_open_active = new_left_open
-
-        # Junction commit overrides normal PD for N ticks after detecting
-        # a side opening. Keeps the car committed to the turn even if the
-        # mid-rotation sensor readings get weird.
-        if self._commit_ticks_remaining > 0:
-            self._commit_ticks_remaining -= 1
-            # Still record error for the D term continuity.
-            error_commit = r - l
-            self._last_error = error_commit
-            cmd = WallFollowCommand(
-                action="arc",
-                linear_speed=JUNCTION_COMMIT_SPEED,
-                curvature=self._commit_curvature,
-                reason=f"junction_commit (left={self._commit_ticks_remaining}) "
-                       f"f={f:.1f} l={l:.1f} r={r:.1f}",
-            )
-            self._trace(cmd)
-            return cmd
-
-        # 1+2+3. Smooth drive -------------------------------------------
+        # --- Smooth drive (centering PD + corner anticipation) -----------
         error = r - l
         derror_raw = 0.0 if self._last_error is None else (error - self._last_error)
-        # Clamp D-term to prevent spasms on big sensor jumps.
         derror = max(-MAX_DERROR_CM, min(MAX_DERROR_CM, derror_raw))
         self._last_error = error
 
@@ -317,33 +423,38 @@ class WallFollowController:
             centering = 0.0
         else:
             centering = -KP_CENTER * error - KD_CENTER * derror
+            # Lane-keeping alone may never saturate steering (zigzag fix).
+            centering = max(-CENTERING_MAX, min(CENTERING_MAX, centering))
 
         corner_bias = 0.0
         if f < CORNER_ANTICIPATE_CM:
             shortfall = CORNER_ANTICIPATE_CM - f
+            # Open-side choice on the HELD values: a brief dropout on one
+            # side must not flip the turn toward a wall that is still
+            # there (the hold filter encodes distance continuity, so the
+            # held reading IS our best estimate of that side).
             direction = -1.0 if r >= l else +1.0
             corner_bias = direction * KP_CORNER * shortfall
 
-        curvature = max(-1.0, min(1.0, centering + corner_bias))
+        curvature_target = max(-1.0, min(1.0, centering + corner_bias))
+        curvature = self._slew_curvature(curvature_target)
 
-        # Base speed: continuous forward-clearance ramp (FRONT sensor only),
-        # full cruise on open straights, bleeding toward the corner floor as
-        # the front wall nears. Replaces the old BASE/APPROACH/SLOW step.
         speed = front_speed(f)
-        # Narrowing slowdown (both sides tight) — CLAUDE.md corridor-width
-        # defense — applied as a cap on top of the ramp.
         if l < NARROWING_CM and r < NARROWING_CM:
             speed = min(speed, SLOW_SPEED)
+        if l > WIDE_OPEN_CM and r > WIDE_OPEN_CM:
+            speed = min(speed, CRUISE * WIDE_AREA_SPEED_FRACTION)
+        if front_unknown:
+            # Blind front: do not cruise into what we cannot see.
+            speed = min(speed, APPROACH_SPEED)
 
-        # Error-magnitude speed scaling: big offset -> slow down so we
-        # don't overshoot while correcting. Linear ramp to a floor.
         scale = max(
             SPEED_SCALE_FLOOR,
             1.0 - abs(error) / SPEED_SCALE_ERROR_REF * (1.0 - SPEED_SCALE_FLOOR),
         )
-        speed = speed * scale
+        speed = self._slew_speed(speed * scale)
 
-        cmd = WallFollowCommand(
+        return self._emit(WallFollowCommand(
             action="arc",
             linear_speed=speed,
             curvature=curvature,
@@ -353,41 +464,48 @@ class WallFollowController:
                 f"cent={centering:+.2f} corn={corner_bias:+.2f} "
                 f"scale={scale:.2f}"
             ),
-        )
-        self._trace(cmd)
-        return cmd
+        ))
 
     # ------------------------------------------------------------------ #
     # Internals
     # ------------------------------------------------------------------ #
-    def _maybe_log_junction(
-        self, f: float, l: float, r: float
-    ) -> tuple[bool, bool]:
-        """Detect openings. Emit a trace event on rising edges.
+    def _end_reacquire(self, why: str) -> None:
+        if self._reacq_active:
+            tracer.info("reacquire_done", why=why, ticks=self._reacq_ticks)
+        self._reacq_active = False
+        self._reacq_ticks = 0
+        self._reacq_success_streak = 0
 
-        Returns (right_open_now, left_open_now); caller compares against
-        previous state to detect a rising edge.
-        """
-        right_open = r > JUNCTION_CM
-        left_open = l > JUNCTION_CM
-        # Don't log on the first call (active flags are None) — that's
-        # initial state, not an edge.
-        if self._right_open_active is True or self._right_open_active is False:
-            if right_open and not self._right_open_active:
-                tracer.info("junction_right_opened", front=f, left=l, right=r)
-        if self._left_open_active is True or self._left_open_active is False:
-            if left_open and not self._left_open_active:
-                tracer.info("junction_left_opened", front=f, left=l, right=r)
-        return right_open, left_open
+    def _slew_curvature(self, target: float) -> float:
+        """Limit how fast |curvature| may GROW; relaxing toward zero is
+        instant (returning to straight is never dangerous — jerking into
+        a turn on one noisy tick is)."""
+        last = self._last_curvature
+        shrinking_same_side = abs(target) <= abs(last) and target * last >= 0
+        if shrinking_same_side:
+            return target
+        delta = max(-MAX_CURVATURE_STEP, min(MAX_CURVATURE_STEP, target - last))
+        return last + delta
 
-    @staticmethod
-    def _safe(v: float | None, default: float) -> float:
-        return v if v is not None else default
+    def _slew_speed(self, target: float) -> float:
+        """Brake instantly, accelerate gradually."""
+        last = self._last_speed
+        if last is None or target <= last:
+            return target
+        return min(target, last + ACCEL_PWM_PER_TICK)
 
-    @staticmethod
-    def _trace(cmd: WallFollowCommand) -> None:
+    def _emit(self, cmd: WallFollowCommand) -> WallFollowCommand:
+        # Record actuation state for the slew limiters. A pivot resets the
+        # steering reference (rotation in place has no arc curvature).
+        self._last_speed = cmd.linear_speed
+        self._last_curvature = cmd.curvature if cmd.action == "arc" else 0.0
         tracer.decision(
             state="WALL_FOLLOW",
             action=f"{cmd.action} s={cmd.linear_speed:.0f} c={cmd.curvature:+.2f}",
             reason=cmd.reason,
         )
+        return cmd
+
+    @staticmethod
+    def _safe(v: float | None, default: float) -> float:
+        return v if v is not None else default

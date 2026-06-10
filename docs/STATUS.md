@@ -1,15 +1,19 @@
 # Project status (snapshot)
 
-_Updated 2026-06-04 — real-driving stabilization pass (Mac-only verification).
-Three behavior fixes from a whole-repo analysis: SM-1 infinite-pivot bailout
-(RECOVERING reverse-escape), CTRL-1 dead-side-sensor defense (mirror a
-sustained-None side, never steer into the blind wall), PERC-1 RED-priority
-decision (extracted to cv2-free `perception/signal_logic.py`). 79 pytest pass,
-maze_sim still EXIT_REACHED. Magnitudes (DEAD_SENSOR_TICKS, PIVOT_MAX_TICKS,
-reverse-escape) are Pi-tunable/validate-later; the LEFT45/RIGHT45 wiring fix
-remains the gating real-driving blocker. Prior 2026-06-02: continuous
-front-clearance speed profile + single CRUISE knob + speed-aware corner
-anticipation._
+_Updated 2026-06-11 — **completion-first control redesign** after 2026-06-10
+field runs (failures: U-turn wall hits #1, zigzag→side hits #2, missed
+corners, false EXITED stops). Changes: (1) closed-loop **wall-reacquire
+turn** replaces the fixed junction commit — straight past the wall end,
+then arc right until the wall is seen again; (2) left openings ignored
+(right-hand purity); (3) zigzag damping — KP↓ KD↑ deadband↑, centering
+output capped at ±0.5, per-tick curvature growth limit, accel slew;
+(4) None policy — side None holds last valid until dead-mirroring (no
+phantom-400 swerves), front None holds then caps speed; (5) stuck/pivot
+judgments None-robust + two-phase recovery (reverse → turn, escalating);
+(6) **EXITED self-stop removed entirely** (user decision — run ends by
+power cut / --duration). 106 pytest pass; sim sweep 179/180 EXIT_REACHED
+across 2 mazes x {0,15,30}% sensor-dropout x 30 seeds (only miss: 1 seed
+at the extreme 30% rate). Prior 2026-06-04: SM-1/CTRL-1/PERC-1 pass._
 
 ## Where we are
 
@@ -57,7 +61,8 @@ test.
 │
 ├── algorithm/                # NEW — high-level
 │   └── wall_follower_sm.py   #   state machine: INIT / FOLLOWING / STOPPED_AT_RED
-│                             #                  / PIVOTING
+│                             #   / PIVOTING / RECOVERING (no EXITED — the
+│                             #   self-stop was removed 2026-06-10)
 │
 ├── logs/                     # NEW — structured logging
 │   ├── trace.py              #   JSONL tracer singleton
@@ -85,7 +90,8 @@ python logs/trace.py                              # demo trace write
 python logs/trace.py show logs/runs/<file>.jsonl  # pretty-print
 python main.py --dry-run --duration 5             # smoke test the loop
 python logs/replay.py logs/runs/<file>.jsonl --latency  # replay + latency
-pytest tests/ -q                                  # 79 behavioral tests
+pytest tests/ -q                                  # 106 behavioral tests
+python tools/maze_sim.py --maze uturn --none-rate 0.25  # U-turn case + dropout noise
 python ultrasonic_direction_check.py --demo       # preview the 3-sensor direction check off-Pi
 ```
 
@@ -113,8 +119,9 @@ event, and exit cleanly.
 | Drift trim | `hal/motors.py` | ⏳ placeholder (1.0/1.0) |
 | Turn rate | `hal/motors.py` | ⏳ placeholder (150 deg/s) |
 | Wall-follow PD gains | `control/wall_follow.py` | ⏳ placeholder, retune on real maze |
-| **CRUISE speed knob** | `control/wall_follow.py` | ⏳ single hardware-day dial (45.0); whole speed table derives from it |
-| Corner-anticipate distance | `control/wall_follow.py` | ⏳ 25 cm at reference cruise; now SPEED-AWARE (grows with CRUISE via ANTICIPATE_GAIN) |
+| **CRUISE speed knob** | `control/wall_follow.py` | ⏳ single hardware-day dial (34.0, completion-first); whole speed table derives from it |
+| Corner-anticipate distance | `control/wall_follow.py` | ⏳ 45 cm at reference cruise; SPEED-AWARE (grows with CRUISE via ANTICIPATE_GAIN) |
+| Wall-reacquire turn (REACQ_*) | `control/wall_follow.py` | ⏳ straight 18 ticks / curvature −0.5 / timeout 110 — sim-tuned, Pi-validate |
 | SAFE_MARGIN_CM | `control/wall_follow.py` | ⏳ placeholder (4 cm) |
 
 ## Hardware status (per the `hardware_check.py` run that motivated this turn)
@@ -145,6 +152,9 @@ event, and exit cleanly.
 ## Locked decisions (from CLAUDE.md, do not relitigate)
 
 - **Algorithm**: right-hand wall-follow (TA confirmed left/right parity ⇒ simply connected maze; Pledge counter NOT needed; structure keeps a slot in case spec changes).
+- **Completion over speed** (user, 2026-06-10): 95/100 finishes beats 10 fast finishes. CRUISE and all maneuver speeds are tuned conservatively.
+- **No self-stop / exit auto-detection** (user, 2026-06-10): a false EXITED kills the run; a true exit is handled by cutting power. STOPPED_AT_RED stays (graded requirement).
+- **Right-hand purity**: LEFT openings are never committed into; left turns only come from front-wall corner anticipation.
 - **Driving style**: smooth-drive only (continuous arcs); in-place pivot is dead-end fallback only.
 - **Wall-follow target**: center the car using (right − left); right-hand bias on ties.
 - **Camera detector at runtime**: `hsv_circle` logic (via `perception/traffic_light.py`); YOLO is dev-only.
