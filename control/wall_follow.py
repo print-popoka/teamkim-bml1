@@ -53,7 +53,7 @@ NARROWING_CM = 14.0
 # faster dead-sensor protection but risks cutting a slow junction turn short
 # (~2.5s at 10Hz). Assumes the LEFT45/RIGHT45 wiring is healthy; this is
 # mid-run-failure defense, not a substitute for the wiring fix.
-DEAD_SENSOR_TICKS = 25
+DEAD_SENSOR_TICKS = 8
 
 # --------------------------------------------------------------------- #
 # Speed table — derived from ONE hardware-day knob, CRUISE.
@@ -76,8 +76,8 @@ BASE_SPEED = CRUISE                                  # open-straight cruise (imp
 APPROACH_SPEED = CRUISE * CORNER_APPROACH_FRACTION   # corner-approach floor speed
 SLOW_SPEED = CRUISE * SLOW_FRACTION                  # narrowing + clearance guards
 
-KP_CENTER = 0.06
-KP_CORNER = 0.03
+KP_CENTER = 0.04
+KP_CORNER = 0.05
 KD_CENTER = 0.04
 
 # Corner anticipation is SPEED-AWARE: a faster car must begin its arc
@@ -99,7 +99,7 @@ CORNER_FLOOR_CM = 12.0
 
 # Errors below this (cm) get no centering correction.
 # Addresses prof's tip #2: teams over-correct and waste forward progress.
-DEADBAND_CM = 1.0
+DEADBAND_CM = 2.0
 
 # Cap on |derror| per tick. Without this, a side wall disappearing at
 # a junction makes derror huge (e.g. 15 -> 400 in one tick = 385cm),
@@ -194,6 +194,9 @@ class WallFollowController:
         # Consecutive-None counters per side, for dead-sensor detection.
         self._left_none_streak: int = 0
         self._right_none_streak: int = 0
+        # Hold filters to smooth out brief sensor dropouts (None flickering)
+        self._last_valid_left: float | None = None
+        self._last_valid_right: float | None = None
 
     def step(
         self,
@@ -204,12 +207,30 @@ class WallFollowController:
         # Track sustained side dropouts: a DEAD sensor (mirror it to the live
         # side -> never steer toward the blind wall) vs a brief None at a real
         # opening (keep treating as open so junction turns still fire).
-        self._left_none_streak = self._left_none_streak + 1 if left_cm is None else 0
-        self._right_none_streak = self._right_none_streak + 1 if right_cm is None else 0
+        if left_cm is not None:
+            self._last_valid_left = left_cm
+            self._left_none_streak = 0
+        else:
+            self._left_none_streak += 1
+
+        if right_cm is not None:
+            self._last_valid_right = right_cm
+            self._right_none_streak = 0
+        else:
+            self._right_none_streak += 1
+
+        # Brief None hold filter: reuse last valid reading if None is brief (< 5 ticks)
+        l_filtered = left_cm
+        if l_filtered is None and self._left_none_streak < 5 and self._last_valid_left is not None:
+            l_filtered = self._last_valid_left
+
+        r_filtered = right_cm
+        if r_filtered is None and self._right_none_streak < 5 and self._last_valid_right is not None:
+            r_filtered = self._last_valid_right
 
         f = self._safe(front_cm, default=400.0)
-        l = self._safe(left_cm, default=400.0)
-        r = self._safe(right_cm, default=400.0)
+        l = self._safe(l_filtered, default=400.0)
+        r = self._safe(r_filtered, default=400.0)
 
         # Dead-side mirroring: only after DEAD_SENSOR_TICKS consecutive None,
         # and only when the OTHER side is live, so a real opening (brief None)
