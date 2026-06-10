@@ -19,6 +19,26 @@ After reboot, every power-on will:
 3. Trace lands in `~/teamkim-bml1/logs/runs/<timestamp>_boot_run.jsonl`
 4. Pi stays powered after run completes — pull battery whenever
 
+> **Dev-mode guard.** If a monitor (HDMI) is connected, the autorun is skipped
+> so the car can't drive off while you work at the desk. Boot on battery with
+> **no monitor** for it to actually run. Force a run with a monitor attached
+> via `FORCE_AUTORUN=1`.
+
+## Stop it auto-driving while you develop (monitor/keyboard attached)
+
+The HDMI guard above covers the common case, but the guaranteed control is the
+systemd service itself:
+
+```bash
+sudo systemctl disable --now teamkim-bml1.service   # OFF: never autorun on boot
+sudo systemctl enable teamkim-bml1.service          # ON:  autorun on next boot
+systemctl is-enabled teamkim-bml1.service           # check -> enabled / disabled
+sudo systemctl stop teamkim-bml1.service            # stop a run already in progress
+```
+
+Recommended: keep it **disabled** while developing, and **enable** it only right
+before a battery field run.
+
 ## Tuning run duration / name at the sample maze
 
 You only need this if you want a longer drive or a per-trial name:
